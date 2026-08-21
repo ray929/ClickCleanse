@@ -111,19 +111,41 @@ local BUTTON_LABELS = {
 }
 
 local DEFAULT_SIZE = 30
-local SIZE_CVAR = "ClickCleanseSize"
-local DEBUG_CVAR = "ClickCleanseDebug"
+
+-- 方块相对血条的停靠位置；默认沿用旧行为（血条左侧）。
+local ANCHORS = {
+    left   = { point = "RIGHT",  relPoint = "LEFT",   dx = -5, dy = 0 },
+    right  = { point = "LEFT",   relPoint = "RIGHT",  dx = 5,  dy = 0 },
+    top    = { point = "BOTTOM", relPoint = "TOP",    dx = 0,  dy = 5 },
+    bottom = { point = "TOP",    relPoint = "BOTTOM", dx = 0,  dy = -5 },
+}
+
+-- 持久化设置：SavedVariables（账号级，ADDON_LOADED 时由引擎注入全局表）。
+local DB
+
+local function GetDB()
+    if not DB then
+        DB = _G.ClickCleanseDB or {}
+        _G.ClickCleanseDB = DB
+    end
+    if type(DB.size) ~= "number" or DB.size < 10 or DB.size > 100 then
+        DB.size = DEFAULT_SIZE
+    end
+    if not ANCHORS[DB.anchor] then DB.anchor = "left" end
+    if type(DB.debug) ~= "boolean" then DB.debug = false end
+    return DB
+end
 
 local function GetSquareSize()
-    local val = tonumber(C_CVar.GetCVar(SIZE_CVAR))
-    if val and val >= 10 and val <= 100 then
-        return val
-    end
-    return DEFAULT_SIZE
+    return GetDB().size
+end
+
+local function GetAnchor()
+    return GetDB().anchor
 end
 
 local function IsDebugEnabled()
-    return C_CVar.GetCVar(DEBUG_CVAR) == "1"
+    return GetDB().debug
 end
 
 local units = {"player", "party1", "party2", "party3", "party4"}
@@ -358,6 +380,8 @@ local function DiscoverDispels()
     end
 
     table.sort(dispels, function(a, b) return a.prio < b.prio end)
+
+    PruneRedundantDispels()
 
     for i = 1, math.min(3, #dispels) do
         dispels[i].mouse = MOUSE_KEYS[i]
@@ -887,6 +911,7 @@ end
 -- Events / ticker
 -- -----------------------------------------------------------------------------
 local eventFrame = CreateFrame("Frame")
+eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
@@ -909,9 +934,10 @@ local function DelayedRefreshLayout()
 end
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
-    if event == "PLAYER_LOGIN" then
-        pcall(C_CVar.RegisterCVar, SIZE_CVAR, tostring(DEFAULT_SIZE))
-        pcall(C_CVar.RegisterCVar, DEBUG_CVAR, "0")
+    if event == "ADDON_LOADED" and arg1 == "ClickCleanse" then
+        -- SavedVariables 就绪，立即套用默认值兜底。
+        GetDB()
+    elseif event == "PLAYER_LOGIN" then
         Print("loaded")
         RefreshAll(true, true)
         if addonEnabled then
@@ -1021,17 +1047,17 @@ SlashCmdList["CLICKCLEANSE"] = function(msg)
     local lower = (msg or ""):lower()
 
     if lower == "debug" then
-        local newVal = not IsDebugEnabled()
-        C_CVar.SetCVar(DEBUG_CVAR, newVal and "1" or "0")
-        Print(newVal and "Debug output enabled" or "Debug output disabled")
-        if newVal then
+        local db = GetDB()
+        db.debug = not db.debug
+        Print(db.debug and "Debug output enabled" or "Debug output disabled")
+        if db.debug then
             RefreshAll(true)
         end
         return
     end
 
     if lower == "left" or lower == "right" or lower == "top" or lower == "bottom" then
-        C_CVar.SetCVar(ANCHOR_CVAR, lower)
+        GetDB().anchor = lower
         Print("Anchor set to " .. lower)
         RefreshLayout()
         return
@@ -1043,7 +1069,7 @@ SlashCmdList["CLICKCLEANSE"] = function(msg)
             PrintError("Size must be between 10 and 100")
             return
         end
-        C_CVar.SetCVar(SIZE_CVAR, tostring(num))
+        GetDB().size = num
         Print("Square size set to " .. num)
         RefreshLayout()
         return

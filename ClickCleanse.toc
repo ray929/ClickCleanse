@@ -6,7 +6,7 @@
 ## Notes-zhCN: 一键简化驱散指示器，依附于小队框架。
 ## Icon: Interface\Icons\Spell_Shadow_Curse
 ## Author: WorkBuddy
-## SavedVariables:
+## SavedVariables: ClickCleanseDB
 
 Locales\enUS.lua
 Locales\zhCN.lua
