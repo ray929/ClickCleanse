@@ -1014,11 +1014,13 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
     if #dispels > 0 and GetSpellCooldownFunc then
         scd = GetSpellCooldownFunc(dispels[1].spellID)
     end
-    -- isOnGCD 过滤：纯 GCD 转圈不显示（等价旧版 duration >= 3 的意图）。
-    local realCD = scd and (scd.isActive == true) and (scd.isOnGCD ~= true)
+    -- GCD 与真 CD 都显示（action bar 原生行为）：isActive 即喂
+    -- DurationObject，GCD/CD 切换由引擎自动处理（施法后全体方块转 GCD
+    -- 小圈，真 CD 期间转大圈）。
+    local active = scd and (scd.isActive == true)
 
     local durObj
-    if realCD and C_Spell and C_Spell.GetSpellCooldownDuration then
+    if active and C_Spell and C_Spell.GetSpellCooldownDuration then
         durObj = C_Spell.GetSpellCooldownDuration(dispels[1].spellID)
     end
 
