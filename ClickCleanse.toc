@@ -1,0 +1,11 @@
+## Interface: 120100
+## Version: 1.1.0
+## Title: ClickCleanse
+## Notes: One-click simplified decursive indicator for party frames.
+## Notes-zhCN: 一键简化驱散指示器，依附于小队框架。
+## Author: WorkBuddy
+## SavedVariables:
+
+Locales\enUS.lua
+Locales\zhCN.lua
+Core.lua
