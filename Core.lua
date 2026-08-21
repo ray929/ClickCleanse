@@ -482,6 +482,7 @@ local function CreateSquareButton(unit)
     -- (CreateSquareButton only runs out of combat, inside RefreshLayout.)
     AttachManagedAura(button, unit)
 
+    -- 冷却动画（转圈）与方块同尺寸。
     local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
     cd:SetAllPoints()
     cd:SetDrawBling(false)
@@ -492,10 +493,10 @@ local function CreateSquareButton(unit)
         cd:SetFrameLevel(button.auraContainer:GetFrameLevel() + 10)
     end
 
-    -- Parented to the cooldown frame so the number stays above the managed fill.
+    -- 中央数字：字号 = 方块高度的 1/2（按钮随大小变化重建，字号随之更新）。
     local fs = cd:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetPoint("CENTER", 0, 0)
-    fs:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+    fs:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, math.floor(GetSquareSize() / 2)), "OUTLINE")
     fs:SetText("")
     button.cdText = fs
 
@@ -865,6 +866,10 @@ local function RefreshLayout(isBootstrap)
 
                 local size = GetSquareSize()
                 button:SetSize(size, size)
+                -- 中央冷却数字字号 = 方块高度的 1/2，随 /ccl <size> 即时更新。
+                if button.cdText then
+                    button.cdText:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, math.floor(size / 2)), "OUTLINE")
+                end
 
                 -- Spec/talent changes may alter which dispel types Blizzard-managed
                 -- detection covers; refresh the container's candidate filters.
@@ -877,7 +882,7 @@ local function RefreshLayout(isBootstrap)
                 button:Show()
                 UpdateButtonVisual(button, unit)
 
-                if IsDebugEnabled() and (isBootstrap or frameChanged) then
+                if IsDebugEnabled() and isBootstrap then
                     local w, h = button:GetSize()
                     local lvl = button:GetFrameLevel()
                     local pName = (button.GetParent and button:GetParent() and button:GetParent().GetName and button:GetParent():GetName()) or "nil"
