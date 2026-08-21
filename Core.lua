@@ -494,7 +494,17 @@ local function CreateSquareButton(unit)
 
     button:SetScript("OnEnter", function(self)
         GameTooltip_SetDefaultAnchor(GameTooltip, self)
-        -- 只显示按键绑定提示，不显示单位信息。
+        -- 首行：角色姓名，按职业染色（姓名/职业不属保密光环数据）。
+        local name = UnitName(unit)
+        if name then
+            local classFile = select(2, UnitClass(unit))
+            local cc = classFile and RAID_CLASS_COLORS[classFile]
+            if cc then
+                GameTooltip:AddLine(name, cc.r, cc.g, cc.b)
+            else
+                GameTooltip:AddLine(name, 1, 1, 1)
+            end
+        end
         if #dispels == 0 then
             GameTooltip:AddLine(L.NO_DISPEL or "No dispel available", 1, 0, 0)
         else
