@@ -345,6 +345,32 @@ end
 -- -----------------------------------------------------------------------------
 -- Dispel discovery
 -- -----------------------------------------------------------------------------
+-- 类型超集去重：若技能 A 的可驱散类型完全覆盖技能 B，则 B 冗余，不占按键。
+-- 例：恢复萨同时知道纯净之魂(魔法+诅咒)与清洁之魂(诅咒)，后者被前者覆盖；
+-- 恢复德的自然之恩赐覆盖腐蚀驱散；神圣骑的清洁覆盖清洁毒素。
+local function IsTypeSubset(small, big)
+    for _, t in ipairs(small) do
+        if not tContains(big, t) then return false end
+    end
+    return true
+end
+
+local function PruneRedundantDispels()
+    local kept = {}
+    for _, d in ipairs(dispels) do
+        local redundant = false
+        for _, other in ipairs(dispels) do
+            if other ~= d and #other.types > #d.types and IsTypeSubset(d.types, other.types) then
+                redundant = true
+                break
+            end
+        end
+        if not redundant then table.insert(kept, d) end
+    end
+    wipe(dispels)
+    for i, d in ipairs(kept) do dispels[i] = d end
+end
+
 local function DiscoverDispels()
     wipe(dispels)
     local _, class = UnitClass("player")
