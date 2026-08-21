@@ -44,15 +44,16 @@ end
 -- -----------------------------------------------------------------------------
 -- Constants
 -- -----------------------------------------------------------------------------
-local BORDER_SIZE = 4
+local BORDER_SIZE = 6
 local MIN_SIZE = 20
 
+-- 深色版驱散类型色（辨识度优先：与职业色拉开差距，如萨满蓝 vs 魔法深蓝）
 local DISPEL_COLORS = {
-    Magic  = {0.20, 0.60, 1.00},
-    Curse  = {0.60, 0.00, 1.00},
-    Poison = {0.00, 0.60, 0.00},
-    Disease= {0.60, 0.40, 0.00},
-    Bleed  = {1.00, 0.20, 0.20},
+    Magic  = {0.00, 0.28, 0.90},
+    Curse  = {0.45, 0.00, 0.85},
+    Poison = {0.00, 0.45, 0.05},
+    Disease= {0.48, 0.30, 0.00},
+    Bleed  = {0.85, 0.08, 0.10},
 }
 
 -- Spell database.  Only friendly dispels are listed.
@@ -437,11 +438,11 @@ local function CreateSquareButton(unit)
     button:RegisterForClicks("AnyDown", "AnyUp")
     button:Hide()
 
-    -- 底部白色方块（全尺寸）：干净时显示为白色外圈；有可驱散减益时托管
-    -- 引擎在其上渲染驱散类型颜色的整层填充——露出的外圈即"边框变色"。
+    -- 底部白色方块（全尺寸，低不透明度）：干净时是柔和白圈；有可驱散减益时
+    -- 托管引擎在其上渲染驱散类型颜色的整层填充——露出的外圈即"边框变色"。
     local bg = button:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(1, 1, 1, 1)
+    bg:SetColorTexture(1, 1, 1, 0.45)
     button.bg = bg
 
     -- Attach the Blizzard-managed aura overlay BEFORE the cooldown frame so
@@ -779,7 +780,9 @@ local function UpdateButtonVisual(button, unit)
 
     local _, class = UnitClass(unit)
     local cc = RAID_CLASS_COLORS[class] or {r=0.5, g=0.5, b=0.5}
-    button.classTex:SetColorTexture(cc.r, cc.g, cc.b, 1)
+    -- 职业色半透明：有可驱散减益时，下方托管填充的类型色会透过中央，
+    -- 整个方块随之变色（外圈全饱和 + 中央混合），辨识度远高于仅外圈变色。
+    button.classTex:SetColorTexture(cc.r, cc.g, cc.b, 0.6)
 end
 
 -- -----------------------------------------------------------------------------
