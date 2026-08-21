@@ -1005,15 +1005,29 @@ end
 -- （布尔非 secret，可安全分支；数字一律不读、不比较）。
 local ticker = CreateFrame("Frame")
 ticker.elapsed = 0
+ticker.lastDurObj = nil   -- 上次喂入的 DurationObject（引用比较，非数值比较，安全）
+ticker.cleared = false    -- 无 CD 状态是否已 Clear 过
 ticker:SetScript("OnUpdate", function(self, elapsed)
     self.elapsed = self.elapsed + elapsed
     if self.elapsed < 0.1 then return end
     self.elapsed = 0
 
-    local scd
-    if #dispels > 0 and GetSpellCooldownFunc then
-        scd = GetSpellCooldownFunc(dispels[1].spellID)
+    -- 无驱散技能的职业（如猎人）：无 CD 可显示，直接早退。
+    -- 重要：ticker 绝不能每 0.1s 无条件调 Clear/SetCooldownFromDurationObject
+    -- 等受限方法——暴雪按配额计数，持续运行会触发
+    -- "insecure scripts exceeded execution limit"（实测 2026-08-21 猎人卡死）。
+    if #dispels == 0 or not GetSpellCooldownFunc then
+        if not self.cleared then
+            for _, button in pairs(buttons) do
+                if button.cooldown then button.cooldown:Clear() end
+            end
+            self.cleared = true
+            self.lastDurObj = nil
+        end
+        return
     end
+
+    local scd = GetSpellCooldownFunc(dispels[1].spellID)
     -- GCD 与真 CD 都显示（action bar 原生行为）：isActive 即喂
     -- DurationObject，GCD/CD 切换由引擎自动处理（施法后全体方块转 GCD
     -- 小圈，真 CD 期间转大圈）。
@@ -1024,23 +1038,33 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
         durObj = C_Spell.GetSpellCooldownDuration(dispels[1].spellID)
     end
 
+    -- 变化检测：只有 DurationObject 引用变化（新 CD 开始）或从无到有才喂，
+    -- 同一 CD 期间引擎自动逐帧渲染，重复喂入既浪费受限调用配额又会重置动画。
+    local durObjChanged = (durObj ~= self.lastDurObj)
+    if not durObj and not self.cleared then
+        for _, button in pairs(buttons) do
+            if button.cooldown then button.cooldown:Clear() end
+        end
+        self.cleared = true
+    elseif durObj then
+        self.cleared = false
+    end
+    self.lastDurObj = durObj
+    if not (durObj and durObjChanged) then return end
+
     local size = GetSquareSize()
     for _, button in pairs(buttons) do
         local cd = button.cooldown
         if cd and button:IsShown() then
-            if durObj then
-                pcall(cd.SetCooldownFromDurationObject, cd, durObj)
-                -- 内置倒计时数字 FontString 首次喂入后才创建，字体后置应用
-                -- （幂等；数字 FontString 带 secret aspect，SetFont 必须 pcall）。
-                if button.cdFontKey ~= size then
-                    local cds = cd.GetCountdownFontString and cd:GetCountdownFontString()
-                    if cds then
-                        pcall(cds.SetFont, cds, "Fonts\\FRIZQT__.TTF", math.max(10, math.floor(size / 2)), "OUTLINE")
-                        button.cdFontKey = size
-                    end
+            pcall(cd.SetCooldownFromDurationObject, cd, durObj)
+            -- 内置倒计时数字 FontString 首次喂入后才创建，字体后置应用
+            -- （幂等；数字 FontString 带 secret aspect，SetFont 必须 pcall）。
+            if button.cdFontKey ~= size then
+                local cds = cd.GetCountdownFontString and cd:GetCountdownFontString()
+                if cds then
+                    pcall(cds.SetFont, cds, "Fonts\\FRIZQT__.TTF", math.max(10, math.floor(size / 2)), "OUTLINE")
+                    button.cdFontKey = size
                 end
-            else
-                cd:Clear()
             end
         end
     end
