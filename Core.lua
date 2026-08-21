@@ -64,10 +64,7 @@ local DISPEL_COLORS = {
     Bleed  = {1.00, 0.20, 0.20},
 }
 
-local TYPE_LOCALE_KEYS = {
-    Magic = "MAGIC", Curse = "CURSE", Poison = "POISON",
-    Disease = "DISEASE", Bleed = "BLEED",
-}
+local TYPE_LOCALE_KEYS = nil -- removed: tooltip no longer lists dispel types
 
 -- Spell database.  Only friendly dispels are listed.
 local DISPEL_SPELLS = {
@@ -824,7 +821,8 @@ local function RefreshLayout(isBootstrap)
                     button:SetParent(reparentTarget)
                 end
                 button:ClearAllPoints()
-                button:SetPoint("RIGHT", hb, "LEFT", -5, 0)
+                local a = ANCHORS[GetAnchor()]
+                button:SetPoint(a.point, hb, a.relPoint, a.dx, a.dy)
                 if frame.GetFrameLevel then
                     -- ERF buttons host many layered children (health +2, text +12, auras +13).
                     -- Push our square well above all of them so it actually receives clicks.
@@ -856,9 +854,6 @@ local function RefreshLayout(isBootstrap)
                         unit, w, h, lvl, pName, tostring(ok and enabled or false), tostring(macroType), tostring(macroText), tostring(button.auraContainer ~= nil)))
                 end
             else
-                if IsDebugEnabled() and (isBootstrap or frameChanged) then
-                    DebugPrint(string.format("%s -> no health bar, hiding", unit))
-                end
                 button:Hide()
             end
         else
@@ -1031,6 +1026,13 @@ SlashCmdList["CLICKCLEANSE"] = function(msg)
         if newVal then
             RefreshAll(true)
         end
+        return
+    end
+
+    if lower == "left" or lower == "right" or lower == "top" or lower == "bottom" then
+        C_CVar.SetCVar(ANCHOR_CVAR, lower)
+        Print("Anchor set to " .. lower)
+        RefreshLayout()
         return
     end
 
