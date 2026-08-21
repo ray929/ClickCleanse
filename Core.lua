@@ -34,15 +34,6 @@ local GetSpellNameFunc = (C_Spell and C_Spell.GetSpellName) or function(sid)
 end
 local GetSpellCooldownFunc = (C_Spell and C_Spell.GetSpellCooldown)
 
-local function GetSpellCooldownInfo(spellID)
-    if not GetSpellCooldownFunc then return 0, 0 end
-    local info = GetSpellCooldownFunc(spellID)
-    if info then
-        return info.startTime or 0, info.duration or 0, info.modRate or 1
-    end
-    return 0, 0, 1
-end
-
 local function tContains(tbl, value)
     for _, v in ipairs(tbl) do
         if v == value then return true end
@@ -482,23 +473,18 @@ local function CreateSquareButton(unit)
     -- (CreateSquareButton only runs out of combat, inside RefreshLayout.)
     AttachManagedAura(button, unit)
 
-    -- 冷却动画（转圈）与方块同尺寸。
+    -- 冷却动画（转圈）与方块同尺寸。12.1 起转圈与倒计时数字均由引擎在 C 层
+    -- 渲染：SetCooldownFromDurationObject(DurationObject)，Lua 不接触保密数值。
     local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
     cd:SetAllPoints()
     cd:SetDrawBling(false)
     cd:SetDrawEdge(false)
-    cd:Hide()
+    cd:SetHideCountdownNumbers(false)
+    cd:SetCooldown(0, 0)
     button.cooldown = cd
     if button.auraContainer and button.auraContainer.GetFrameLevel then
         cd:SetFrameLevel(button.auraContainer:GetFrameLevel() + 10)
     end
-
-    -- 中央数字：字号 = 方块高度的 1/2（按钮随大小变化重建，字号随之更新）。
-    local fs = cd:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    fs:SetPoint("CENTER", 0, 0)
-    fs:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, math.floor(GetSquareSize() / 2)), "OUTLINE")
-    fs:SetText("")
-    button.cdText = fs
 
     button:SetScript("OnMouseDown", function(self, mouseButton)
         if IsDebugEnabled() then
@@ -866,10 +852,6 @@ local function RefreshLayout(isBootstrap)
 
                 local size = GetSquareSize()
                 button:SetSize(size, size)
-                -- 中央冷却数字字号 = 方块高度的 1/2，随 /ccl <size> 即时更新。
-                if button.cdText then
-                    button.cdText:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, math.floor(size / 2)), "OUTLINE")
-                end
 
                 -- Spec/talent changes may alter which dispel types Blizzard-managed
                 -- detection covers; refresh the container's candidate filters.
@@ -1013,9 +995,12 @@ if CompactPartyFrame then
 end
 
 -- Cooldown countdown ticker.
--- Aura data is secret in combat, so affliction-driven cooldown display is no
--- longer possible; instead the primary dispel's cooldown is always shown on
--- every square (player spell cooldowns are never restricted).
+-- 12.1：战斗中法术 CD 数字对插件 Lua 是 secret 值（比较即报错）。唯一保密
+-- 安全的路径是引擎驱动的 DurationObject（Ayije_CDM / Decursive 同款）：
+--   C_Spell.GetSpellCooldownDuration(spellID) → DurationObject
+--   cd:SetCooldownFromDurationObject(obj)     → 转圈+倒计时数字全在 C 层渲染
+-- Lua 只读 GetSpellCooldown 返回表的布尔字段 isActive/isOnGCD 判断状态
+-- （布尔非 secret，可安全分支；数字一律不读、不比较）。
 local ticker = CreateFrame("Frame")
 ticker.elapsed = 0
 ticker:SetScript("OnUpdate", function(self, elapsed)
@@ -1023,32 +1008,36 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
     if self.elapsed < 0.1 then return end
     self.elapsed = 0
 
-    local start, duration, modRate
-    if #dispels > 0 then
-        start, duration, modRate = GetSpellCooldownInfo(dispels[1].spellID)
+    local scd
+    if #dispels > 0 and GetSpellCooldownFunc then
+        scd = GetSpellCooldownFunc(dispels[1].spellID)
     end
-    -- Ignore GCD-length cooldowns so the squares do not flash every global.
-    local active = (duration and duration >= 3) and true or false
+    -- isOnGCD 过滤：纯 GCD 转圈不显示（等价旧版 duration >= 3 的意图）。
+    local realCD = scd and (scd.isActive == true) and (scd.isOnGCD ~= true)
 
+    local durObj
+    if realCD and C_Spell and C_Spell.GetSpellCooldownDuration then
+        durObj = C_Spell.GetSpellCooldownDuration(dispels[1].spellID)
+    end
+
+    local size = GetSquareSize()
     for _, button in pairs(buttons) do
-        if button:IsShown() then
-            if active then
-                if button.cdStart ~= start or button.cdDuration ~= duration then
-                    button.cooldown:SetCooldown(start, duration, modRate)
-                    button.cooldown:Show()
-                    button.cdStart, button.cdDuration = start, duration
+        local cd = button.cooldown
+        if cd and button:IsShown() then
+            if durObj then
+                pcall(cd.SetCooldownFromDurationObject, cd, durObj)
+                -- 内置倒计时数字 FontString 首次喂入后才创建，字体后置应用
+                -- （幂等；数字 FontString 带 secret aspect，SetFont 必须 pcall）。
+                if button.cdFontKey ~= size then
+                    local cds = cd.GetCountdownFontString and cd:GetCountdownFontString()
+                    if cds then
+                        pcall(cds.SetFont, cds, "Fonts\\FRIZQT__.TTF", math.max(10, math.floor(size / 2)), "OUTLINE")
+                        button.cdFontKey = size
+                    end
                 end
-                local remaining = (start + duration) - GetTime()
-                button.cdText:SetText(remaining > 0 and math.ceil(remaining) or "")
-            elseif button.cdDuration then
-                button.cooldown:Hide()
-                button.cdText:SetText("")
-                button.cdStart, button.cdDuration = nil, nil
+            else
+                cd:Clear()
             end
-        elseif button.cdDuration then
-            button.cooldown:Hide()
-            button.cdText:SetText("")
-            button.cdStart, button.cdDuration = nil, nil
         end
     end
 end)
