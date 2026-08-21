@@ -812,6 +812,16 @@ local function RefreshLayout(isBootstrap)
     lastRefreshTime = now
     pendingUpdate = false
 
+    -- 团队中/无驱散技能：直接隐藏全部方块并返回，跳过昂贵的
+    -- FindUnitFrame 全局帧枚举（最多 1500 帧 × 5 单位；团队 roster 事件
+    -- 频繁触发，不跳过的话纯属浪费）。
+    if not ShouldShow() then
+        for _, button in pairs(buttons) do
+            button:Hide()
+        end
+        return
+    end
+
     if IsDebugEnabled() then
         DebugPrint(string.format("RefreshLayout | group=%s raid=%s dispels=%d",
             tostring(IsInGroup()), tostring(IsInRaid()), #dispels))
