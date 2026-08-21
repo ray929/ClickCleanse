@@ -19,3 +19,15 @@
 /ccl 10-100                   设置方块大小
                                Set the square size
 ```
+
+## 致谢 / Credits
+
+- [Decursive](https://www.curseforge.com/wow/addons/decursive) — 托管光环覆盖层（AuraContainer）的实现参考
+  Referenced for the managed aura overlay (AuraContainer) implementation.
+- [SmartDeBuff](https://www.curseforge.com/wow/addons/smartdebuff) — 驱散类型颜色映射（ColorCurve）的实现参考
+  Referenced for the dispel-type color mapping (ColorCurve).
+
+## 说明 / Note
+
+本插件为作者个人游玩方便而制作，功能以自身需求为准，不承诺长期维护。
+This addon was made for the author's personal convenience; features follow personal needs and long-term maintenance is not guaranteed.
