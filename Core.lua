@@ -64,8 +64,6 @@ local DISPEL_COLORS = {
     Bleed  = {1.00, 0.20, 0.20},
 }
 
-local TYPE_LOCALE_KEYS = nil -- removed: tooltip no longer lists dispel types
-
 -- Spell database.  Only friendly dispels are listed.
 local DISPEL_SPELLS = {
     DRUID = {
@@ -509,29 +507,14 @@ local function CreateSquareButton(unit)
 
     button:SetScript("OnEnter", function(self)
         GameTooltip_SetDefaultAnchor(GameTooltip, self)
-        GameTooltip:SetUnit(unit)
-        local _, class = UnitClass(unit)
-        local className = (class and LOCALIZED_CLASS_NAMES_MALE[class]) or ""
-        local name = UnitName(unit) or UNKNOWNOBJECT
-        GameTooltip:AddLine(name.." ("..className..")", 1, 1, 1)
+        -- 只显示按键绑定提示，不显示单位信息。
         if #dispels == 0 then
             GameTooltip:AddLine(L.NO_DISPEL or "No dispel available", 1, 0, 0)
         else
             for _, d in ipairs(dispels) do
-                GameTooltip:AddLine((d.label or "")..": "..(d.name or ""), 0.8, 0.9, 1)
-            end
-            -- Which dispel types Blizzard-managed detection covers.
-            local seen, names = {}, {}
-            for _, d in ipairs(dispels) do
-                for _, dt in ipairs(d.types) do
-                    if not seen[dt] then
-                        seen[dt] = true
-                        table.insert(names, L[TYPE_LOCALE_KEYS[dt]] or dt)
-                    end
+                if d.mouse then
+                    GameTooltip:AddLine(string.format(L.BINDING_FORMAT or "%s: %s", d.label or "", d.name or ""), 0.8, 0.9, 1)
                 end
-            end
-            if #names > 0 then
-                GameTooltip:AddLine(string.format(L.DETECT_FORMAT or "Detects: %s", table.concat(names, ", ")), 0.8, 0.9, 1)
             end
         end
         GameTooltip:Show()
