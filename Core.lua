@@ -243,11 +243,10 @@ local function InitializeManagedAuraButton(auraButton, host)
         if auraButton.SetMouseMotionEnabled then auraButton:SetMouseMotionEnabled(false) end
     end)
 
-    -- Inset by the border width so the white border stays visible when the
-    -- managed fill covers the square.
+    -- 整层填充（不内缩）：职业色内层方块在其上方遮住中央，露出的外圈
+    -- 即"边框变色"效果。
     local fill = auraButton:CreateTexture(nil, "ARTWORK")
-    fill:SetPoint("TOPLEFT", auraButton, "TOPLEFT", BORDER_SIZE, -BORDER_SIZE)
-    fill:SetPoint("BOTTOMRIGHT", auraButton, "BOTTOMRIGHT", -BORDER_SIZE, BORDER_SIZE)
+    fill:SetAllPoints(auraButton)
     fill:SetColorTexture(1, 1, 1, 1)
 
     local styleEnum = _G.Enum and _G.Enum.CustomAuraButtonDispelTypeTextureStyle
@@ -431,12 +430,6 @@ end
 -- -----------------------------------------------------------------------------
 -- Frame creation
 -- -----------------------------------------------------------------------------
-local function SetBorderColor(button, r, g, b, a)
-    for _, tex in ipairs(button.borders) do
-        tex:SetColorTexture(r, g, b, a)
-    end
-end
-
 local function CreateSquareButton(unit)
     local button = CreateFrame("Button", "ClickCleanse_"..unit, UIParent, "SecureActionButtonTemplate")
     button:SetSize(MIN_SIZE, MIN_SIZE)
@@ -444,29 +437,12 @@ local function CreateSquareButton(unit)
     button:RegisterForClicks("AnyDown", "AnyUp")
     button:Hide()
 
+    -- 底部白色方块（全尺寸）：干净时显示为白色外圈；有可驱散减益时托管
+    -- 引擎在其上渲染驱散类型颜色的整层填充——露出的外圈即"边框变色"。
     local bg = button:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.5, 0.5, 0.5, 0.5)
+    bg:SetColorTexture(1, 1, 1, 1)
     button.bg = bg
-
-    -- Manual border so we do not depend on BackdropTemplate on a secure button.
-    button.borders = {}
-    local t = button:CreateTexture(nil, "OVERLAY")
-    t:SetHeight(BORDER_SIZE); t:SetPoint("TOPLEFT"); t:SetPoint("TOPRIGHT")
-    t:SetColorTexture(1, 1, 1, 0.5)
-    table.insert(button.borders, t)
-    t = button:CreateTexture(nil, "OVERLAY")
-    t:SetHeight(BORDER_SIZE); t:SetPoint("BOTTOMLEFT"); t:SetPoint("BOTTOMRIGHT")
-    t:SetColorTexture(1, 1, 1, 0.5)
-    table.insert(button.borders, t)
-    t = button:CreateTexture(nil, "OVERLAY")
-    t:SetWidth(BORDER_SIZE); t:SetPoint("TOPLEFT"); t:SetPoint("BOTTOMLEFT")
-    t:SetColorTexture(1, 1, 1, 0.5)
-    table.insert(button.borders, t)
-    t = button:CreateTexture(nil, "OVERLAY")
-    t:SetWidth(BORDER_SIZE); t:SetPoint("TOPRIGHT"); t:SetPoint("BOTTOMRIGHT")
-    t:SetColorTexture(1, 1, 1, 0.5)
-    table.insert(button.borders, t)
 
     -- Attach the Blizzard-managed aura overlay BEFORE the cooldown frame so
     -- the cooldown swipe and countdown render above the managed fill.
@@ -484,6 +460,22 @@ local function CreateSquareButton(unit)
     button.cooldown = cd
     if button.auraContainer and button.auraContainer.GetFrameLevel then
         cd:SetFrameLevel(button.auraContainer:GetFrameLevel() + 10)
+    end
+
+    -- 职业色内层方块：比白色方块小一圈（内缩 BORDER_SIZE），叠在托管填充
+    -- 之上（container+5，低于冷却的 container+10）——减益变色只出现在外圈，
+    -- 职业色始终保留在中央。
+    local classLayer = CreateFrame("Frame", nil, button)
+    classLayer:SetAllPoints()
+    classLayer:EnableMouse(false)
+    button.classLayer = classLayer
+    local classTex = classLayer:CreateTexture(nil, "ARTWORK")
+    classTex:SetPoint("TOPLEFT", classLayer, "TOPLEFT", BORDER_SIZE, -BORDER_SIZE)
+    classTex:SetPoint("BOTTOMRIGHT", classLayer, "BOTTOMRIGHT", -BORDER_SIZE, BORDER_SIZE)
+    classTex:SetColorTexture(1, 1, 1, 1)
+    button.classTex = classTex
+    if button.auraContainer and button.auraContainer.GetFrameLevel then
+        classLayer:SetFrameLevel(button.auraContainer:GetFrameLevel() + 5)
     end
 
     button:SetScript("OnMouseDown", function(self, mouseButton)
@@ -787,8 +779,7 @@ local function UpdateButtonVisual(button, unit)
 
     local _, class = UnitClass(unit)
     local cc = RAID_CLASS_COLORS[class] or {r=0.5, g=0.5, b=0.5}
-    button.bg:SetColorTexture(cc.r, cc.g, cc.b, 0.5)
-    SetBorderColor(button, 1, 1, 1, 0.5)
+    button.classTex:SetColorTexture(cc.r, cc.g, cc.b, 1)
 end
 
 -- -----------------------------------------------------------------------------
@@ -844,12 +835,13 @@ local function RefreshLayout(isBootstrap)
         if show and frame then
             local hb = GetHealthBar(frame)
             if hb then
-                -- Reparent to the unit frame's parent (e.g. ERFPartyHeader) so our
-                -- SecureActionButton is a sibling of the ERF unit button, not a child.
-                -- Otherwise the ERF SecureUnitButton intercepts all clicks.
-                local reparentTarget = frame.GetParent and frame:GetParent() or UIParent
-                if reparentTarget and button:GetParent() ~= reparentTarget then
-                    button:SetParent(reparentTarget)
+                -- 始终保持顶层父子关系（UIParent），只用锚点跟随目标血条。
+                -- 绝不能 SetParent 进 ERF/暴雪的 secure header：外来子框架会
+                -- 污染 SecureGroupHeader_Update 的安全路径，战斗中触发
+                -- ADDON_ACTION_BLOCKED（ERF "StatusBar:SetHeight()"）。
+                -- 点击由"同 strata + frameLevel+50 压顶"保证，与父子无关。
+                if frame.GetFrameStrata then
+                    button:SetFrameStrata(frame:GetFrameStrata())
                 end
                 button:ClearAllPoints()
                 local a = ANCHORS[GetAnchor()]
