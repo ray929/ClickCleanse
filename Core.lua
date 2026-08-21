@@ -86,6 +86,7 @@ local DISPEL_SPELLS = {
     SHAMAN = {
         {spellID = 77130, types = {"Magic", "Curse"},           prio = 1}, -- Purify Spirit
         {spellID = 51886, types = {"Curse"},                    prio = 2}, -- Cleanse Spirit
+        {spellID = 383013,types = {"Poison"},                   prio = 3}, -- Poison Cleansing Totem (AoE 脉冲驱毒，落地即生效，[@unit] 由引擎忽略)
     },
     MONK = {
         {spellID = 115450,types = {"Magic"},                    prio = 1, -- Detox (Mistweaver)
