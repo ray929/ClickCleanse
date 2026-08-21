@@ -1017,11 +1017,10 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
     end
 end)
 
--- Manual slash command.  Register aliases in case "/cc" conflicts with
--- Blizzard Click Casting or another addon.
-SLASH_CLICKCLEANSE1 = "/cc"
-SLASH_CLICKCLEANSE2 = "/ccl"
-SLASH_CLICKCLEANSE3 = "/clickcleanse"
+-- Manual slash command.  "/cc" is not registered because it conflicts with
+-- Blizzard Click Casting; "/ccl" is the primary prefix.
+SLASH_CLICKCLEANSE1 = "/ccl"
+SLASH_CLICKCLEANSE2 = "/clickcleanse"
 SlashCmdList["CLICKCLEANSE"] = function(msg)
     local lower = (msg or ""):lower()
 

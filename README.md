@@ -36,7 +36,7 @@
 ## 调试 / Debug
 
 ```
-/cc debug    -- 切换调试输出 / toggle debug output
-/cc 30       -- 设置方块大小 (10-100) / set square size
-/cc          -- 手动刷新 / manual refresh
+/ccl debug    -- 切换调试输出 / toggle debug output
+/ccl 30       -- 设置方块大小 (10-100) / set square size
+/ccl          -- 手动刷新 / manual refresh
 ```
