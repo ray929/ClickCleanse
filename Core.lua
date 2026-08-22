@@ -52,8 +52,8 @@ local MIN_SIZE = 20
 local DISPEL_COLORS = {
     Magic  = {0.00, 0.45, 1.00},
     Curse  = {0.62, 0.18, 1.00},
-    Poison = {0.05, 0.52, 0.10},
-    Disease= {0.65, 0.45, 0.08},
+    Poison = {0.10, 0.65, 0.15},
+    Disease= {0.85, 0.68, 0.10},
     Bleed  = {1.00, 0.28, 0.30},
 }
 
