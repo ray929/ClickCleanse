@@ -50,11 +50,11 @@ local MIN_SIZE = 20
 -- 注意感知亮度：人眼对绿最敏感（权重 0.7152），绿色的 G 值必须压得比
 -- 其他通道更低才能"看起来一样深"（Poison 0.30 的观感约等于 Curse 0.45+0.85）。
 local DISPEL_COLORS = {
-    Magic  = {0.00, 0.28, 0.90},
-    Curse  = {0.45, 0.00, 0.85},
-    Poison = {0.00, 0.38, 0.06},
-    Disease= {0.48, 0.30, 0.00},
-    Bleed  = {0.85, 0.08, 0.10},
+    Magic  = {0.00, 0.45, 1.00},
+    Curse  = {0.62, 0.18, 1.00},
+    Poison = {0.05, 0.52, 0.10},
+    Disease= {0.65, 0.45, 0.08},
+    Bleed  = {1.00, 0.28, 0.30},
 }
 
 -- Spell database.  Only friendly dispels are listed.
@@ -432,6 +432,15 @@ end
 -- -----------------------------------------------------------------------------
 -- Frame creation
 -- -----------------------------------------------------------------------------
+-- 职业色内缩量 = 方块尺寸的 20%（每边），中央剩 60%。
+-- 创建时与每次 /ccl 调尺寸后都要调用（锚点偏移随尺寸变化）。
+local function ApplyClassInset(button)
+    local inset = math.max(2, math.floor(GetSquareSize() * 0.2))
+    button.classTex:ClearAllPoints()
+    button.classTex:SetPoint("TOPLEFT", button.classLayer, "TOPLEFT", inset, -inset)
+    button.classTex:SetPoint("BOTTOMRIGHT", button.classLayer, "BOTTOMRIGHT", -inset, inset)
+end
+
 local function CreateSquareButton(unit)
     local button = CreateFrame("Button", "ClickCleanse_"..unit, UIParent, "SecureActionButtonTemplate")
     button:SetSize(MIN_SIZE, MIN_SIZE)
@@ -457,18 +466,17 @@ local function CreateSquareButton(unit)
         cd:SetFrameLevel(button.auraContainer:GetFrameLevel() + 10)
     end
 
-    -- 职业色整层（铺满整个方块，边缘与外沿对齐），叠在托管填充之上
-    -- （container+5，低于冷却的 container+10）。alpha=0.2 几乎透明：
-    -- 无 debuff 时整个方块是极淡的职业色印记；有 debuff 时下方的类型色
-    -- 整层填充透过（80% 类型色 + 20% 职业色混合），整块变色。
+    -- 职业色内层方块：每边内缩 20%（ApplyClassInset），叠在托管填充之上
+    -- （container+5，低于冷却的 container+10）——debuff 时类型色从四周
+    -- 露出一圈（约 20% 宽）+ 中央混合，职业色印记保持在中央 60% 区域。
     local classLayer = CreateFrame("Frame", nil, button)
     classLayer:SetAllPoints()
     classLayer:EnableMouse(false)
     button.classLayer = classLayer
     local classTex = classLayer:CreateTexture(nil, "ARTWORK")
-    classTex:SetAllPoints()
     classTex:SetColorTexture(1, 1, 1, 1)
     button.classTex = classTex
+    ApplyClassInset(button)
     if button.auraContainer and button.auraContainer.GetFrameLevel then
         classLayer:SetFrameLevel(button.auraContainer:GetFrameLevel() + 5)
     end
@@ -861,6 +869,7 @@ local function RefreshLayout(isBootstrap)
 
                 local size = GetSquareSize()
                 button:SetSize(size, size)
+                ApplyClassInset(button)
 
                 -- Spec/talent changes may alter which dispel types Blizzard-managed
                 -- detection covers; refresh the container's candidate filters.
