@@ -4,8 +4,8 @@
 
 - 自动识别你当前职业/专精的驱散技能，绑定到方块上：1 个驱散左键，2 个左/右键，3 个左/右/中键。
   Auto-discovers your dispels and binds them to the square: 1 dispel → left click, 2 → left/right, 3 → left/right/middle.
-- 队友血条旁显示可点击方块，出现你能驱散的减益时自动变色（魔法蓝、诅咒紫、中毒绿、疾病棕、流血红），战斗中、副本内同样有效。
-  A clickable square beside each party member's health bar turns the debuff type color (Magic blue, Curse purple, Poison green, Disease brown, Bleed red) — works in combat and instances.
+- 队友血条旁显示可点击方块，出现你能驱散的减益时自动变色并亮起白色描边（魔法天蓝、诅咒亮紫、中毒亮绿、疾病明黄、流血明红），战斗中、副本内同样有效。
+  A clickable square beside each party member's health bar turns the debuff type color with a white highlight border (Magic sky blue, Curse purple, Poison green, Disease yellow, Bleed red) — works in combat and instances.
 - 显示驱散技能冷却，单击即对队友施放。
   Shows dispel cooldowns; one click casts on that party member.
 - 单人与小队中启用，团队中自动隐藏；无驱散能力时自动停用。

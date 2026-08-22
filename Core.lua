@@ -197,6 +197,7 @@ local DISPEL_TYPE_CURVE_POINTS = {
 }
 
 local dispelCurve
+local highlightCurve
 local initializedManagedAuraButtons = setmetatable({}, { __mode = "k" })
 
 local function BuildDispelTypeFilter()
@@ -216,17 +217,26 @@ local function RebuildDispelCurve()
         dispelCurve = _G.C_CurveUtil.CreateColorCurve()
         dispelCurve:SetType(_G.Enum.LuaCurveType.Step)
     end
+    if not highlightCurve then
+        highlightCurve = _G.C_CurveUtil.CreateColorCurve()
+        highlightCurve:SetType(_G.Enum.LuaCurveType.Step)
+    end
     -- The curve object is mutated in place so textures already registered
     -- with AddDispelTypeTexture pick up new colors on the next reconfigure.
     dispelCurve:ClearPoints()
     dispelCurve:AddPoint(0, _G.CreateColor(0, 0, 0, 0))
+    highlightCurve:ClearPoints()
+    highlightCurve:AddPoint(0, _G.CreateColor(0, 0, 0, 0))
     local include = BuildDispelTypeFilter()
     for _, point in ipairs(DISPEL_TYPE_CURVE_POINTS) do
         local c = include[point.typeName] and DISPEL_COLORS[point.typeName]
         if c then
             dispelCurve:AddPoint(point.code, _G.CreateColor(c[1], c[2], c[3], 1))
+            -- 高亮描边统一用白色：与类型色填充同条件显示，形成"点亮"效果。
+            highlightCurve:AddPoint(point.code, _G.CreateColor(1, 1, 1, 1))
         else
             dispelCurve:AddPoint(point.code, _G.CreateColor(0, 0, 0, 0))
+            highlightCurve:AddPoint(point.code, _G.CreateColor(0, 0, 0, 0))
         end
     end
     return true
@@ -262,6 +272,47 @@ local function InitializeManagedAuraButton(auraButton, host)
         })
         if not ok then
             DebugPrint("AddDispelTypeTexture failed")
+        end
+    end
+
+    -- 高亮描边：4 条白色贴图环绕方块外侧（上/下两条加宽盖住两角），
+    -- 注册到 highlightCurve（白色，仅计入当前可驱散类型）。引擎只在
+    -- 有害减益出现时点亮——与整层填充同一机制，战斗中合法。锚点全部
+    -- 相对 auraButton，方块改尺寸时描边自动跟随（粗细固定，重建时重算）。
+    -- 注意：initializeFrame 之后托管按钮被锁定，描边只能在创建时布局。
+    local thickness = math.max(2, math.floor(GetSquareSize() / 12))
+    local edges = {}
+    for i = 1, 4 do
+        local tex = auraButton:CreateTexture(nil, "OVERLAY")
+        tex:SetColorTexture(1, 1, 1, 1)
+        edges[i] = tex
+    end
+    local top, bottom, left, right = edges[1], edges[2], edges[3], edges[4]
+    top:SetPoint("BOTTOMLEFT", auraButton, "TOPLEFT", -thickness, 0)
+    top:SetPoint("BOTTOMRIGHT", auraButton, "TOPRIGHT", thickness, 0)
+    top:SetHeight(thickness)
+    bottom:SetPoint("TOPLEFT", auraButton, "BOTTOMLEFT", -thickness, 0)
+    bottom:SetPoint("TOPRIGHT", auraButton, "BOTTOMRIGHT", thickness, 0)
+    bottom:SetHeight(thickness)
+    left:SetPoint("TOPRIGHT", auraButton, "TOPLEFT", 0, 0)
+    left:SetPoint("BOTTOMRIGHT", auraButton, "BOTTOMLEFT", 0, 0)
+    left:SetWidth(thickness)
+    right:SetPoint("TOPLEFT", auraButton, "TOPRIGHT", 0, 0)
+    right:SetPoint("BOTTOMLEFT", auraButton, "BOTTOMRIGHT", 0, 0)
+    right:SetWidth(thickness)
+
+    if highlightCurve and styleEnum and styleEnum.PreserveAsset and auraButton.AddDispelTypeTexture then
+        for _, tex in ipairs(edges) do
+            local okEdge = pcall(auraButton.AddDispelTypeTexture, auraButton, tex, {
+                style = styleEnum.PreserveAsset,
+                showWhenHarmful = true,
+                showWhenHelpful = false,
+                showWithoutDispelType = false,
+                customDispelColorCurve = highlightCurve,
+            })
+            if not okEdge then
+                DebugPrint("AddDispelTypeTexture failed (highlight edge)")
+            end
         end
     end
 end
@@ -1160,15 +1211,40 @@ local function StartTestMode()
         local classTex = testFrame:CreateTexture(nil, "OVERLAY")
         classTex:SetColorTexture(1, 1, 1, 0.2)
         testFrame.classTex = classTex
+        -- 高亮描边：4 条白色贴图（复刻真实方块 debuff 时的点亮描边）
+        testFrame.edges = {}
+        for i = 1, 4 do
+            local tex = testFrame:CreateTexture(nil, "OVERLAY")
+            tex:SetColorTexture(1, 1, 1, 1)
+            testFrame.edges[i] = tex
+        end
         testFrame:Hide()
     end
-    -- 尺寸/内缩跟随当前设置（每次进入测试都重算，/ccl 改尺寸即时生效）
+    -- 尺寸/内缩/描边粗细跟随当前设置（每次进入测试都重算，/ccl 改尺寸即时生效）
     local size = GetSquareSize()
     testFrame:SetSize(size, size)
     local inset = math.max(2, math.floor(size * 0.1))
     testFrame.classTex:ClearAllPoints()
     testFrame.classTex:SetPoint("TOPLEFT", testFrame, "TOPLEFT", inset, -inset)
     testFrame.classTex:SetPoint("BOTTOMRIGHT", testFrame, "BOTTOMRIGHT", -inset, inset)
+    local thickness = math.max(2, math.floor(size / 12))
+    local top, bottom, left, right = testFrame.edges[1], testFrame.edges[2], testFrame.edges[3], testFrame.edges[4]
+    top:ClearAllPoints()
+    top:SetPoint("BOTTOMLEFT", testFrame, "TOPLEFT", -thickness, 0)
+    top:SetPoint("BOTTOMRIGHT", testFrame, "TOPRIGHT", thickness, 0)
+    top:SetHeight(thickness)
+    bottom:ClearAllPoints()
+    bottom:SetPoint("TOPLEFT", testFrame, "BOTTOMLEFT", -thickness, 0)
+    bottom:SetPoint("TOPRIGHT", testFrame, "BOTTOMRIGHT", thickness, 0)
+    bottom:SetHeight(thickness)
+    left:ClearAllPoints()
+    left:SetPoint("TOPRIGHT", testFrame, "TOPLEFT", 0, 0)
+    left:SetPoint("BOTTOMRIGHT", testFrame, "BOTTOMLEFT", 0, 0)
+    left:SetWidth(thickness)
+    right:ClearAllPoints()
+    right:SetPoint("TOPLEFT", testFrame, "TOPRIGHT", 0, 0)
+    right:SetPoint("BOTTOMLEFT", testFrame, "BOTTOMRIGHT", 0, 0)
+    right:SetWidth(thickness)
     testActive = true
     Print(L.TEST_START or "Test started")
     ShowTestType(1)
