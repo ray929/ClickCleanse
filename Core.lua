@@ -628,6 +628,14 @@ local function FindBlizzardPartyFrame(unit)
     return nil
 end
 
+-- 是否为 Ellesmere Raid Frames 的帧（名字含 ERF）。
+-- bootstrap 用它确保 ERF 已加载时方块锚到 ERF 帧而非全局枚举的回退帧。
+local function IsERFFrame(frame)
+    if not frame then return false end
+    local name = (frame.GetName and frame:GetName()) or ""
+    return name:find("ERF") ~= nil
+end
+
 local function FindERFFrames()
     local ordered = {}
 
@@ -808,7 +816,9 @@ local function RefreshLayout(isBootstrap)
     end
 
     local now = GetTime()
-    if now - lastRefreshTime < REFRESH_THROTTLE then
+    -- bootstrap 重试链每 0.5s 调一次，必须绕过节流：否则重试被节流吞掉
+    --（pendingUpdate 无人消费），布局实际永远不执行。
+    if not isBootstrap and now - lastRefreshTime < REFRESH_THROTTLE then
         pendingUpdate = true
         return
     end
@@ -962,12 +972,20 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
                 if attempts > maxAttempts or not addonEnabled then return end
                 RefreshLayout(true)
                 -- Keep retrying until every unit that should show has a cached frame.
+                -- ERF 已加载时还要求缓存帧来自 ERF：reload 初期 ERF 队伍框架
+                -- 异步初始化未完成，FindUnitFrame 的全局枚举回退会把 player
+                -- 锚到远处的 EllesmereUIUnitFrames_Player/暴雪 PlayerFrame
+                --（表现为方块离 ERF 队伍框架很远），必须继续重试等 ERF 就绪。
+                local erfLoaded = (_G.ERFPartyHeader ~= nil) or (_G.ERFPartySelfButton ~= nil)
                 local allFound = true
                 for _, unit in ipairs(units) do
                     local shouldShow = ShouldShow() and UnitExists(unit) and (unit == "player" or UnitInParty(unit))
-                    if shouldShow and not frameCache[unit] then
-                        allFound = false
-                        break
+                    if shouldShow then
+                        local cached = frameCache[unit]
+                        if not cached or (erfLoaded and not IsERFFrame(cached)) then
+                            allFound = false
+                            break
+                        end
                     end
                 end
                 if not allFound then
