@@ -44,7 +44,6 @@ end
 -- -----------------------------------------------------------------------------
 -- Constants
 -- -----------------------------------------------------------------------------
-local BORDER_SIZE = 6
 local MIN_SIZE = 20
 
 -- 深色版驱散类型色（辨识度优先：与职业色拉开差距，如萨满蓝 vs 魔法深蓝）
@@ -431,6 +430,15 @@ end
 -- -----------------------------------------------------------------------------
 -- Frame creation
 -- -----------------------------------------------------------------------------
+-- 边框粗细 = 方块高度的 1/4（2026-08-21 用户需求），最小 3px 兜底。
+-- 创建时与每次 /ccl 调尺寸后都要调用（classTex 锚点偏移随尺寸变化）。
+local function ApplyClassInset(button)
+    local inset = math.max(3, math.floor(GetSquareSize() / 4))
+    button.classTex:ClearAllPoints()
+    button.classTex:SetPoint("TOPLEFT", button.classLayer, "TOPLEFT", inset, -inset)
+    button.classTex:SetPoint("BOTTOMRIGHT", button.classLayer, "BOTTOMRIGHT", -inset, inset)
+end
+
 local function CreateSquareButton(unit)
     local button = CreateFrame("Button", "ClickCleanse_"..unit, UIParent, "SecureActionButtonTemplate")
     button:SetSize(MIN_SIZE, MIN_SIZE)
@@ -438,11 +446,12 @@ local function CreateSquareButton(unit)
     button:RegisterForClicks("AnyDown", "AnyUp")
     button:Hide()
 
-    -- 底部白色方块（全尺寸，低不透明度）：干净时是柔和白圈；有可驱散减益时
-    -- 托管引擎在其上渲染驱散类型颜色的整层填充——露出的外圈即"边框变色"。
+    -- 底部方块（全尺寸，alpha=0 永久隐藏）：干净时无外圈（纯职业色方块）；
+    -- 有可驱散减益时托管引擎渲染的整层类型色填充透过半透明职业色中央，
+    -- 整个方块变色。外圈白色永久禁用（辨识度问题，2026-08-21 用户反馈）。
     local bg = button:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(1, 1, 1, 0.45)
+    bg:SetColorTexture(1, 1, 1, 0)
     button.bg = bg
 
     -- Attach the Blizzard-managed aura overlay BEFORE the cooldown frame so
@@ -463,7 +472,7 @@ local function CreateSquareButton(unit)
         cd:SetFrameLevel(button.auraContainer:GetFrameLevel() + 10)
     end
 
-    -- 职业色内层方块：比白色方块小一圈（内缩 BORDER_SIZE），叠在托管填充
+    -- 职业色内层方块：内缩量=方块高度 1/4（ApplyClassInset），叠在托管填充
     -- 之上（container+5，低于冷却的 container+10）——减益变色只出现在外圈，
     -- 职业色始终保留在中央。
     local classLayer = CreateFrame("Frame", nil, button)
@@ -471,10 +480,9 @@ local function CreateSquareButton(unit)
     classLayer:EnableMouse(false)
     button.classLayer = classLayer
     local classTex = classLayer:CreateTexture(nil, "ARTWORK")
-    classTex:SetPoint("TOPLEFT", classLayer, "TOPLEFT", BORDER_SIZE, -BORDER_SIZE)
-    classTex:SetPoint("BOTTOMRIGHT", classLayer, "BOTTOMRIGHT", -BORDER_SIZE, BORDER_SIZE)
     classTex:SetColorTexture(1, 1, 1, 1)
     button.classTex = classTex
+    ApplyClassInset(button)
     if button.auraContainer and button.auraContainer.GetFrameLevel then
         classLayer:SetFrameLevel(button.auraContainer:GetFrameLevel() + 5)
     end
@@ -867,6 +875,7 @@ local function RefreshLayout(isBootstrap)
 
                 local size = GetSquareSize()
                 button:SetSize(size, size)
+                ApplyClassInset(button)
 
                 -- Spec/talent changes may alter which dispel types Blizzard-managed
                 -- detection covers; refresh the container's candidate filters.
