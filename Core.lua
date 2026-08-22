@@ -432,29 +432,12 @@ end
 -- -----------------------------------------------------------------------------
 -- Frame creation
 -- -----------------------------------------------------------------------------
--- 边框粗细 = 方块高度的 1/3（2026-08-21 用户需求），最小 4px 兜底。
--- 创建时与每次 /ccl 调尺寸后都要调用（classTex 锚点偏移随尺寸变化）。
-local function ApplyClassInset(button)
-    local inset = math.max(4, math.floor(GetSquareSize() / 3))
-    button.classTex:ClearAllPoints()
-    button.classTex:SetPoint("TOPLEFT", button.classLayer, "TOPLEFT", inset, -inset)
-    button.classTex:SetPoint("BOTTOMRIGHT", button.classLayer, "BOTTOMRIGHT", -inset, inset)
-end
-
 local function CreateSquareButton(unit)
     local button = CreateFrame("Button", "ClickCleanse_"..unit, UIParent, "SecureActionButtonTemplate")
     button:SetSize(MIN_SIZE, MIN_SIZE)
     button:EnableMouse(true)
     button:RegisterForClicks("AnyDown", "AnyUp")
     button:Hide()
-
-    -- 底部白色方块（全尺寸）：alpha=0 完全透明——无 debuff 时边框不可见
-    -- （整个方块仅剩极淡职业色中央）；有 debuff 时托管引擎渲染的类型色
-    -- 整层填充接管边框区域（ColorCurve alpha=1 全不透明）。
-    local bg = button:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(1, 1, 1, 0)
-    button.bg = bg
 
     -- Attach the Blizzard-managed aura overlay BEFORE the cooldown frame so
     -- the cooldown swipe and countdown render above the managed fill.
@@ -474,17 +457,18 @@ local function CreateSquareButton(unit)
         cd:SetFrameLevel(button.auraContainer:GetFrameLevel() + 10)
     end
 
-    -- 职业色内层方块：内缩量=方块高度 1/4（ApplyClassInset），叠在托管填充
-    -- 之上（container+5，低于冷却的 container+10）——减益变色只出现在外圈，
-    -- 职业色始终保留在中央。
+    -- 职业色整层（铺满整个方块，边缘与外沿对齐），叠在托管填充之上
+    -- （container+5，低于冷却的 container+10）。alpha=0.2 几乎透明：
+    -- 无 debuff 时整个方块是极淡的职业色印记；有 debuff 时下方的类型色
+    -- 整层填充透过（80% 类型色 + 20% 职业色混合），整块变色。
     local classLayer = CreateFrame("Frame", nil, button)
     classLayer:SetAllPoints()
     classLayer:EnableMouse(false)
     button.classLayer = classLayer
     local classTex = classLayer:CreateTexture(nil, "ARTWORK")
+    classTex:SetAllPoints()
     classTex:SetColorTexture(1, 1, 1, 1)
     button.classTex = classTex
-    ApplyClassInset(button)
     if button.auraContainer and button.auraContainer.GetFrameLevel then
         classLayer:SetFrameLevel(button.auraContainer:GetFrameLevel() + 5)
     end
@@ -877,7 +861,6 @@ local function RefreshLayout(isBootstrap)
 
                 local size = GetSquareSize()
                 button:SetSize(size, size)
-                ApplyClassInset(button)
 
                 -- Spec/talent changes may alter which dispel types Blizzard-managed
                 -- detection covers; refresh the container's candidate filters.
