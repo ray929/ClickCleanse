@@ -1,7 +1,7 @@
 # 点击驱散 ClickCleanse
 
-小队一键驱散助手：在每位队友血条旁放一个可点击的小方块，出现你能驱散的减益时，方块自动变成对应类型的颜色并亮起白色描边，点一下即对该队友施放驱散。
-A one-click party dispel helper: a clickable square sits beside each party member's health bar; when a debuff you can dispel appears, the square turns the matching type color with a white highlight border, and one click casts the dispel on that member.
+队友血条旁的可点击小方块：出现可驱散减益时变色亮边，点击即驱散。
+A clickable square by each party bar: lights up in the debuff's color when dispellable — click to cleanse.
 
 ## 功能 / Features
 
