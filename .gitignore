@@ -4,5 +4,6 @@
 .temp
 .test
 .reasonix
+reasonix.toml
 .workbuddy
 AGENTS.md
