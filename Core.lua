@@ -780,11 +780,9 @@ local function UpdateButtonVisual(button, unit)
         return
     end
 
-    local _, class = UnitClass(unit)
-    local cc = RAID_CLASS_COLORS[class] or {r=0.5, g=0.5, b=0.5}
-    -- 职业色中央 alpha=0.2（几乎透明，无 debuff 时低调；有 debuff 时中央
-    -- 也主要显示下方的类型色填充，职业色仅微微透出）。
-    button.classTex:SetColorTexture(cc.r, cc.g, cc.b, 0.2)
+    -- 中央底色一律白色 alpha=0.2（无 debuff 时低调的白印记；有 debuff 时
+    -- 中央也主要显示下方的类型色填充，白色仅微微透出提亮）。
+    button.classTex:SetColorTexture(1, 1, 1, 0.2)
 end
 
 -- -----------------------------------------------------------------------------
@@ -1140,12 +1138,9 @@ local function StartTestMode()
         fill:SetAllPoints()
         fill:SetColorTexture(1, 1, 1, 1)
         testFrame.fill = fill
-        -- 职业色叠加层：内缩 10%、alpha 0.2，复刻真实方块的中央混合视觉
+        -- 中央底色叠加层：内缩 10%、alpha 0.2 白色，复刻真实方块视觉
         local classTex = testFrame:CreateTexture(nil, "OVERLAY")
         classTex:SetColorTexture(1, 1, 1, 0.2)
-        local classFile = select(2, UnitClass("player"))
-        local cc = classFile and RAID_CLASS_COLORS[classFile]
-        if cc then classTex:SetColorTexture(cc.r, cc.g, cc.b, 0.2) end
         testFrame.classTex = classTex
         testFrame:Hide()
     end
