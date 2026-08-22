@@ -432,10 +432,10 @@ end
 -- -----------------------------------------------------------------------------
 -- Frame creation
 -- -----------------------------------------------------------------------------
--- 职业色内缩量 = 方块尺寸的 20%（每边），中央剩 60%。
+-- 职业色内缩量 = 方块尺寸的 10%（每边），中央剩 80%。
 -- 创建时与每次 /ccl 调尺寸后都要调用（锚点偏移随尺寸变化）。
 local function ApplyClassInset(button)
-    local inset = math.max(2, math.floor(GetSquareSize() * 0.2))
+    local inset = math.max(2, math.floor(GetSquareSize() * 0.1))
     button.classTex:ClearAllPoints()
     button.classTex:SetPoint("TOPLEFT", button.classLayer, "TOPLEFT", inset, -inset)
     button.classTex:SetPoint("BOTTOMRIGHT", button.classLayer, "BOTTOMRIGHT", -inset, inset)
@@ -466,9 +466,9 @@ local function CreateSquareButton(unit)
         cd:SetFrameLevel(button.auraContainer:GetFrameLevel() + 10)
     end
 
-    -- 职业色内层方块：每边内缩 20%（ApplyClassInset），叠在托管填充之上
+    -- 职业色内层方块：每边内缩 10%（ApplyClassInset），叠在托管填充之上
     -- （container+5，低于冷却的 container+10）——debuff 时类型色从四周
-    -- 露出一圈（约 20% 宽）+ 中央混合，职业色印记保持在中央 60% 区域。
+    -- 露出一圈（约 10% 宽）+ 中央混合，职业色印记保持在中央 80% 区域。
     local classLayer = CreateFrame("Frame", nil, button)
     classLayer:SetAllPoints()
     classLayer:EnableMouse(false)
@@ -1086,6 +1086,81 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
     end
 end)
 
+-- -----------------------------------------------------------------------------
+-- /ccl test — 驱散类型颜色预览
+-- 屏幕中央显示独立预览方块（不依赖队伍/真实减益），复刻真实方块的
+-- 视觉结构：类型色整层填充 + 职业色内缩 10%/alpha 0.2 叠加。
+-- 依次展示 5 种类型，每种持续 2 秒、间隔 1 秒；战斗中拒绝执行。
+-- -----------------------------------------------------------------------------
+local TEST_TYPES = {"Magic", "Curse", "Poison", "Disease", "Bleed"}
+local testFrame
+local testActive = false
+
+local function StopTestMode()
+    testActive = false
+    if testFrame then testFrame:Hide() end
+    Print(L.TEST_END or "Test finished")
+end
+
+local function ShowTestType(index)
+    if not testActive then return end
+    if index > #TEST_TYPES then
+        StopTestMode()
+        return
+    end
+    local typeName = TEST_TYPES[index]
+    local color = DISPEL_COLORS[typeName]
+    testFrame.fill:SetColorTexture(color[1], color[2], color[3], 1)
+    testFrame:Show()
+    local display = (L.TEST_TYPE_NAMES and L.TEST_TYPE_NAMES[typeName]) or typeName
+    Print(string.format("%s (%d/%d)", display, index, #TEST_TYPES))
+    -- 持续 2 秒 → 隐藏 → 间隔 1 秒 → 下一种
+    C_Timer.After(2, function()
+        if not testActive then return end
+        testFrame:Hide()
+        C_Timer.After(1, function()
+            if not testActive then return end
+            ShowTestType(index + 1)
+        end)
+    end)
+end
+
+local function StartTestMode()
+    if InCombatLockdown() then
+        Print(L.TEST_IN_COMBAT or "In combat, cannot test")
+        return
+    end
+    if testActive then
+        testActive = false -- 重新开始：作废旧计时链（回调检查 testActive）
+    end
+    if not testFrame then
+        testFrame = CreateFrame("Frame", "ClickCleanse_TestPreview", UIParent)
+        testFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+        local fill = testFrame:CreateTexture(nil, "ARTWORK")
+        fill:SetAllPoints()
+        fill:SetColorTexture(1, 1, 1, 1)
+        testFrame.fill = fill
+        -- 职业色叠加层：内缩 10%、alpha 0.2，复刻真实方块的中央混合视觉
+        local classTex = testFrame:CreateTexture(nil, "OVERLAY")
+        classTex:SetColorTexture(1, 1, 1, 0.2)
+        local classFile = select(2, UnitClass("player"))
+        local cc = classFile and RAID_CLASS_COLORS[classFile]
+        if cc then classTex:SetColorTexture(cc.r, cc.g, cc.b, 0.2) end
+        testFrame.classTex = classTex
+        testFrame:Hide()
+    end
+    -- 尺寸/内缩跟随当前设置（每次进入测试都重算，/ccl 改尺寸即时生效）
+    local size = GetSquareSize()
+    testFrame:SetSize(size, size)
+    local inset = math.max(2, math.floor(size * 0.1))
+    testFrame.classTex:ClearAllPoints()
+    testFrame.classTex:SetPoint("TOPLEFT", testFrame, "TOPLEFT", inset, -inset)
+    testFrame.classTex:SetPoint("BOTTOMRIGHT", testFrame, "BOTTOMRIGHT", -inset, inset)
+    testActive = true
+    Print(L.TEST_START or "Test started")
+    ShowTestType(1)
+end
+
 -- Manual slash command.  "/cc" is not registered because it conflicts with
 -- Blizzard Click Casting; "/ccl" is the primary prefix.
 SLASH_CLICKCLEANSE1 = "/ccl"
@@ -1100,6 +1175,11 @@ SlashCmdList["CLICKCLEANSE"] = function(msg)
         if db.debug then
             RefreshAll(true)
         end
+        return
+    end
+
+    if lower == "test" then
+        StartTestMode()
         return
     end
 
