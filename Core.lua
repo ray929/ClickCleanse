@@ -1011,7 +1011,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         -- SavedVariables 就绪，立即套用默认值兜底。
         GetDB()
     elseif event == "PLAYER_LOGIN" then
-        Print("loaded")
+        Print(L.LOADED or "loaded")
         RefreshAll(true, true)
         if addonEnabled then
             -- ERF/ElvUI party frames initialize asynchronously after PLAYER_LOGIN.
@@ -1260,7 +1260,8 @@ SlashCmdList["CLICKCLEANSE"] = function(msg)
     if lower == "debug" then
         local db = GetDB()
         db.debug = not db.debug
-        Print(db.debug and "Debug output enabled" or "Debug output disabled")
+        Print(db.debug and (L.DEBUG_ON or "Debug output enabled")
+                          or (L.DEBUG_OFF or "Debug output disabled"))
         if db.debug then
             RefreshAll(true)
         end
@@ -1274,7 +1275,8 @@ SlashCmdList["CLICKCLEANSE"] = function(msg)
 
     if lower == "left" or lower == "right" or lower == "top" or lower == "bottom" then
         GetDB().anchor = lower
-        Print("Anchor set to " .. lower)
+        Print(string.format(L.ANCHOR_SET or "Anchor set to %s",
+            (L.ANCHOR_NAMES and L.ANCHOR_NAMES[lower]) or lower))
         RefreshLayout()
         return
     end
@@ -1282,15 +1284,15 @@ SlashCmdList["CLICKCLEANSE"] = function(msg)
     local num = tonumber(msg)
     if num then
         if num < 10 or num > 100 then
-            PrintError("Size must be between 10 and 100")
+            PrintError(L.SIZE_INVALID or "Size must be between 10 and 100")
             return
         end
         GetDB().size = num
-        Print("Square size set to " .. num)
+        Print(string.format(L.SIZE_SET or "Square size set to %d", num))
         RefreshLayout()
         return
     end
 
-    Print("Manual refresh triggered")
+    Print(L.REFRESHED or "Manual refresh triggered")
     RefreshAll(true)
 end
