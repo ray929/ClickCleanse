@@ -446,12 +446,12 @@ local function CreateSquareButton(unit)
     button:RegisterForClicks("AnyDown", "AnyUp")
     button:Hide()
 
-    -- 底部方块（全尺寸，alpha=0 永久隐藏）：干净时无外圈（纯职业色方块）；
-    -- 有可驱散减益时托管引擎渲染的整层类型色填充透过半透明职业色中央，
-    -- 整个方块变色。外圈白色永久禁用（辨识度问题，2026-08-21 用户反馈）。
+    -- 底部白色方块（全尺寸，完全不透明 alpha=1）：干净时显示为实心白外圈；
+    -- 有可驱散减益时托管引擎在其上渲染类型色整层填充，外圈变为类型色。
+    -- 白色必须全饱和——半透明白在浅色背景上难以分辨（2026-08-21 用户反馈）。
     local bg = button:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(1, 1, 1, 0)
+    bg:SetColorTexture(1, 1, 1, 1)
     button.bg = bg
 
     -- Attach the Blizzard-managed aura overlay BEFORE the cooldown frame so
