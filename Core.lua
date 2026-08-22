@@ -432,10 +432,10 @@ end
 -- -----------------------------------------------------------------------------
 -- Frame creation
 -- -----------------------------------------------------------------------------
--- 边框粗细 = 方块高度的 1/4（2026-08-21 用户需求），最小 3px 兜底。
+-- 边框粗细 = 方块高度的 1/3（2026-08-21 用户需求），最小 4px 兜底。
 -- 创建时与每次 /ccl 调尺寸后都要调用（classTex 锚点偏移随尺寸变化）。
 local function ApplyClassInset(button)
-    local inset = math.max(3, math.floor(GetSquareSize() / 4))
+    local inset = math.max(4, math.floor(GetSquareSize() / 3))
     button.classTex:ClearAllPoints()
     button.classTex:SetPoint("TOPLEFT", button.classLayer, "TOPLEFT", inset, -inset)
     button.classTex:SetPoint("BOTTOMRIGHT", button.classLayer, "BOTTOMRIGHT", -inset, inset)
@@ -448,12 +448,12 @@ local function CreateSquareButton(unit)
     button:RegisterForClicks("AnyDown", "AnyUp")
     button:Hide()
 
-    -- 底部白色方块（全尺寸，完全不透明 alpha=1）：干净时显示为实心白外圈；
-    -- 有可驱散减益时托管引擎在其上渲染类型色整层填充，外圈变为类型色。
-    -- 白色必须全饱和——半透明白在浅色背景上难以分辨（2026-08-21 用户反馈）。
+    -- 底部白色方块（全尺寸）：alpha=0 完全透明——无 debuff 时边框不可见
+    -- （整个方块仅剩极淡职业色中央）；有 debuff 时托管引擎渲染的类型色
+    -- 整层填充接管边框区域（ColorCurve alpha=1 全不透明）。
     local bg = button:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(1, 1, 1, 1)
+    bg:SetColorTexture(1, 1, 1, 0)
     button.bg = bg
 
     -- Attach the Blizzard-managed aura overlay BEFORE the cooldown frame so
@@ -790,9 +790,9 @@ local function UpdateButtonVisual(button, unit)
 
     local _, class = UnitClass(unit)
     local cc = RAID_CLASS_COLORS[class] or {r=0.5, g=0.5, b=0.5}
-    -- 职业色半透明：有可驱散减益时，下方托管填充的类型色会透过中央，
-    -- 整个方块随之变色（外圈全饱和 + 中央混合），辨识度远高于仅外圈变色。
-    button.classTex:SetColorTexture(cc.r, cc.g, cc.b, 0.6)
+    -- 职业色中央 alpha=0.2（几乎透明，无 debuff 时低调；有 debuff 时中央
+    -- 也主要显示下方的类型色填充，职业色仅微微透出）。
+    button.classTex:SetColorTexture(cc.r, cc.g, cc.b, 0.2)
 end
 
 -- -----------------------------------------------------------------------------
