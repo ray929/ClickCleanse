@@ -1,0 +1,9 @@
+package-as: ClickCleanse
+enable-nolib-creation: no
+ignore:
+  - docs
+  - AGENTS.md
+  - .gitignore
+  - .reasonix
+  - .workbuddy
+  - reasonix.toml
