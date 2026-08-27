@@ -9,6 +9,7 @@
 ## SavedVariables: ClickCleanseDB
 ## DefaultState: enabled
 ## Category: Combat
+## X-Curse-Project-ID: 1663511
 
 Locales\enUS.lua
 Locales\zhCN.lua
