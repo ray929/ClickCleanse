@@ -51,7 +51,7 @@ local MIN_SIZE = 20
 -- 避免在黑底职业色上刺眼失衡；其余颜色放开发到近满饱和。
 local DISPEL_COLORS = {
     Magic  = {0.00, 0.70, 1.00},  -- 天蓝
-    Curse  = {0.68, 0.32, 1.00},  -- 亮紫
+    Curse  = {0.50, 0.15, 0.95},  -- 深亮紫（用户反馈亮紫偏浅，加深一档）
     Poison = {0.00, 0.90, 0.15},  -- 亮绿
     Disease= {1.00, 0.90, 0.00},  -- 明黄
     Bleed  = {1.00, 0.20, 0.10},  -- 明红
@@ -176,14 +176,19 @@ end
 -- party members.  Detection is delegated to Blizzard's managed
 -- AuraContainer/AuraButton system instead:
 --   * The engine evaluates the protected aura data internally and only shows
---     the managed button when the unit has a harmful aura the active player
---     can dispel (HARMFUL|RAID_PLAYER_DISPELLABLE + includeDispelTypes).
+--     the managed button when the unit has a harmful aura matching the slot's
+--     candidateFilters (includeDispelTypes, built from our own spell table).
 --   * The fill texture is colored by dispel type through a ColorCurve that
 --     Blizzard evaluates in the engine; addon code never reads aura data.
 --   * The container topology may only be built out of combat.
+-- Filter string is plain "HARMFUL" on purpose: the RAID_PLAYER_DISPELLABLE
+-- token only knows class/spec baseline dispels, so it never matches Poison
+-- for a shaman whose poison removal is Poison Cleansing Totem (a talent),
+-- nor Bleed for evokers (Cauterizing Flame) or monk talent Detox types.
+-- Our includeDispelTypes already gates the types we can actually dispel.
 
 local AURA_SLOT_KEY = "clickcleanse_dispel"
-local AURA_FILTER = "HARMFUL|RAID_PLAYER_DISPELLABLE"
+local AURA_FILTER = "HARMFUL"
 
 -- Blizzard numeric dispel type codes used on ColorCurves
 -- (1=Magic 2=Curse 3=Disease 4=Poison, 9 and 11 both map to Bleed).
