@@ -1115,15 +1115,27 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
         return
     end
 
-    local scd = GetSpellCooldownFunc(dispels[1].spellID)
-    -- GCD 与真 CD 都显示（action bar 原生行为）：isActive 即喂
-    -- DurationObject，GCD/CD 切换由引擎自动处理（施法后全体方块转 GCD
-    -- 小圈，真 CD 期间转大圈）。
-    local active = scd and (scd.isActive == true)
-
+    -- 多技能轮询（2026-08-27 修复）：旧版只查 dispels[1]，多驱散职业
+    -- 排在后面的技能（如萨满驱毒图腾排在清洁之魂之后）CD 永远不显示。
+    -- 现在遍历全部驱散技能：真 CD（isActive 且非 GCD）优先——找到即用；
+    -- 无真 CD 时退回 GCD 对象（施法后全体方块转 GCD 小圈的原生行为
+    -- 保持不变；GCD/CD 切换由引擎自动处理）。
     local durObj
-    if active and C_Spell and C_Spell.GetSpellCooldownDuration then
-        durObj = C_Spell.GetSpellCooldownDuration(dispels[1].spellID)
+    if C_Spell and C_Spell.GetSpellCooldownDuration then
+        for i = 1, #dispels do
+            local scd = GetSpellCooldownFunc(dispels[i].spellID)
+            if scd and scd.isActive == true then
+                local obj = C_Spell.GetSpellCooldownDuration(dispels[i].spellID)
+                if obj then
+                    if scd.isOnGCD ~= true then
+                        durObj = obj
+                        break -- 真 CD 优先，找到即用
+                    elseif not durObj then
+                        durObj = obj -- 暂存 GCD 对象作后备
+                    end
+                end
+            end
+        end
     end
 
     -- 变化检测：只有 DurationObject 引用变化（新 CD 开始）或从无到有才喂，
