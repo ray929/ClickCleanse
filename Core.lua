@@ -1138,10 +1138,9 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
 
     -- 多技能轮询（2026-08-27 修复）：旧版只查 dispels[1]，多驱散职业
     -- 排在后面的技能（如萨满驱毒图腾排在清洁之魂之后）CD 永远不显示。
-    -- 现在遍历全部驱散技能：真 CD（isActive 且非 GCD）优先——找到即用；
-    -- 无真 CD 时退回 GCD 对象（施法后全体方块转 GCD 小圈的原生行为
-    -- 保持不变；GCD/CD 切换由引擎自动处理）。
-    local durObj
+    -- 现在遍历全部驱散技能，分别收集真 CD（isActive 且非 GCD）与 GCD
+    -- 两个 DurationObject（isOnGCD 布尔非 secret，可安全分支）。
+    local cdObj, gcdObj
     if C_Spell and C_Spell.GetSpellCooldownDuration then
         for i = 1, #dispels do
             local scd = GetSpellCooldownFunc(dispels[i].spellID)
@@ -1149,20 +1148,27 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
                 local obj = C_Spell.GetSpellCooldownDuration(dispels[i].spellID)
                 if obj then
                     if scd.isOnGCD ~= true then
-                        durObj = obj
-                        break -- 真 CD 优先，找到即用
-                    elseif not durObj then
-                        durObj = obj -- 暂存 GCD 对象作后备
+                        cdObj = obj
+                        break -- 真 CD 优先，找到即停
+                    elseif not gcdObj then
+                        gcdObj = obj -- 暂存 GCD 对象
                     end
                 end
             end
         end
     end
 
-    -- 2026-08-27：没有任何可驱散 debuff 时（所有方块填充贴图都未被引擎
-    -- 点亮），技能 CD 不显示——驱散后方块立即清爽，不再残留转圈。
-    if durObj and not HasActiveDebuff() then
-        durObj = nil
+    -- 组合规则（2026-08-27 两全版）：
+    -- * GCD 始终显示（action bar 原生行为，施放任何法术后全体方块转
+    --   GCD 小圈）；
+    -- * 真 CD 只在存在可驱散 debuff 时显示（HasActiveDebuff，见上）——
+    --   驱散后 GCD 转完方块即清爽，真 CD 不再残留；若期间 GCD 仍活跃
+    --   （刚施放驱散），退回显示 GCD 小圈。
+    local durObj
+    if cdObj then
+        durObj = HasActiveDebuff() and cdObj or gcdObj
+    else
+        durObj = gcdObj
     end
 
     -- 变化检测：只有 DurationObject 引用变化（新 CD 开始）或从无到有才喂，
