@@ -265,6 +265,10 @@ local function InitializeManagedAuraButton(auraButton, host)
     local fill = auraButton:CreateTexture(nil, "ARTWORK")
     fill:SetAllPoints(auraButton)
     fill:SetColorTexture(1, 1, 1, 1)
+    -- 保存引用：引擎只在有匹配 debuff 时 Show/点亮该贴图（无 debuff 时
+    -- 隐藏），ticker 借此判断"当前是否有可驱散减益"——战斗中贴图可见性
+    -- 是干净的渲染状态（非 secret 数值），且读取永远在引擎侧完成。
+    auraButton.fillTex = fill
 
     local styleEnum = _G.Enum and _G.Enum.CustomAuraButtonDispelTypeTextureStyle
     if dispelCurve and styleEnum and styleEnum.PreserveAsset and auraButton.AddDispelTypeTexture then
@@ -1084,6 +1088,23 @@ if CompactPartyFrame then
     end)
 end
 
+-- 判定当前是否存在可驱散 debuff：任一托管按钮的整层填充贴图被引擎点亮
+-- （有匹配 aura 时引擎 Show 填充并设 alpha，无 aura 时隐藏/alpha=0）。
+-- 贴图可见性是干净的渲染状态（非 secret），pcall 兜底；读取失败视为
+-- "有 debuff"（宁可多显示 CD 也不误清）。
+local function HasActiveDebuff()
+    for _, button in pairs(buttons) do
+        local ft = button.fillTex
+        if ft then
+            local ok, shown = pcall(function()
+                return ft:IsShown() and ft:GetAlpha() > 0
+            end)
+            if ok and shown then return true end
+        end
+    end
+    return false
+end
+
 -- Cooldown countdown ticker.
 -- 12.1：战斗中法术 CD 数字对插件 Lua 是 secret 值（比较即报错）。唯一保密
 -- 安全的路径是引擎驱动的 DurationObject（Ayije_CDM / Decursive 同款）：
@@ -1136,6 +1157,12 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
                 end
             end
         end
+    end
+
+    -- 2026-08-27：没有任何可驱散 debuff 时（所有方块填充贴图都未被引擎
+    -- 点亮），技能 CD 不显示——驱散后方块立即清爽，不再残留转圈。
+    if durObj and not HasActiveDebuff() then
+        durObj = nil
     end
 
     -- 变化检测：只有 DurationObject 引用变化（新 CD 开始）或从无到有才喂，
