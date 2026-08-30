@@ -665,19 +665,12 @@ local function SetButtonMacros(button, unit)
     end
     for _, d in ipairs(dispels) do
         if d.mouse then
-            local text
-            if d.warlock and d.commandName and d.grimoireName then
-                -- 术士：施放魔典本体（1276452）——激活时由引擎路由到烧灼
-                -- 驱魔（override 形态法术书按名字查不到，用户实测）；点
-                -- 天赋未用魔典时施放即开启魔典获得驱散（宽松版语义）。
-                -- 多行/宠物条件宏在部分场景报"你需要一个目标"（用户实测
-                -- 恶魔猎犬+魔典），按用户要求退回单行直呼。
-                text = string.format("/cast [@%s] %s", unit, d.grimoireName)
-            else
-                text = string.format("/cast [@%s] %s", unit, d.name)
-            end
+            -- 单行宏直呼技能名（含术士烧灼驱魔：魔典激活时 132411 名字
+            -- 可解析；小鬼形态依赖引擎 override 路由）。按用户实测反馈，
+            -- 多行/pet 条件宏在部分场景报"你需要一个目标"，退回单行。
             button:SetAttribute("type"..d.mouse, "macro")
-            button:SetAttribute("macrotext"..d.mouse, text)
+            button:SetAttribute("macrotext"..d.mouse,
+                string.format("/cast [@%s] %s", unit, d.name))
         end
     end
 end
