@@ -1012,6 +1012,13 @@ local function RefreshAll(rediscover, skipLayout)
 
     if #dispels == 0 then
         addonEnabled = false
+        -- 战斗中不得 Hide 受保护按钮（方块带 macrotext 属性，战斗中
+        -- Show/Hide 是保护操作，直接调会 ADDON_ACTION_BLOCKED）：挂起
+        -- pendingUpdate，脱战后由 PLAYER_REGEN_ENABLED 补隐藏。
+        if InCombatLockdown() then
+            pendingUpdate = true
+            return
+        end
         -- 当前职业/专精没有驱散技能：完全禁用，隐藏所有方块。
         for _, button in pairs(buttons) do
             button:Hide()
@@ -1106,8 +1113,17 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         DelayedRefreshLayout()
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- 战斗结束后补上战斗中被推迟的布局与过滤器更新。
-        if addonEnabled and pendingUpdate then
-            RefreshLayout()
+        if pendingUpdate then
+            if addonEnabled then
+                RefreshLayout()
+            else
+                -- 战斗中被判定为无驱散能力（#dispels==0 挂起）：脱战后
+                -- 补隐藏全部方块。
+                pendingUpdate = false
+                for _, button in pairs(buttons) do
+                    button:Hide()
+                end
+            end
         end
     end
 end)
