@@ -92,6 +92,13 @@ local DISPEL_SPELLS = {
     DEMONHUNTER = {
         {spellID = 205604,types = {"Magic"},                    prio = 1}, -- Reverse Magic (PvP)
     },
+    WARLOCK = {
+        -- 烧灼驱魔（Singe Magic，恶魔掌控在小鬼宠物下的替换形态；或点出
+        -- "魔典：小鬼领主"后由魔典技能替换而来）。驱散友方一个魔法效果。
+        -- 替换类技能检测走 IsSpellKnownOrOverridesKnown（玩家 override +
+        -- 宠物法术书两路），见 DiscoverDispels。
+        {spellID = 89808, types = {"Magic"},                     prio = 1},
+    },
 }
 
 local MOUSE_KEYS = {"1", "2", "3"}
@@ -155,6 +162,7 @@ local dispels = {}
 local buttons = {}
 local frameCache = {}
 local pendingUpdate = false
+local petPendingRediscover = false
 local addonEnabled = false
 local lastRefreshTime = 0
 local REFRESH_THROTTLE = 0.5
@@ -435,11 +443,21 @@ local function DiscoverDispels()
     for _, entry in ipairs(list) do
         local known = IsSpellKnownFunc(entry.spellID)
         local playerSpell = IsPlayerSpell(entry.spellID)
+        -- 替换类技能（如术士烧灼驱魔：恶魔掌控在小鬼下被 override，或
+        -- "魔典：小鬼领主"替换）不在普通 IsSpellKnown 里，需要 override 探测。
+        -- 两个维度：玩家侧 override（魔典路径）+ 宠物法术书（小鬼自带
+        -- Singe Magic，第二个参数 true 查宠物侧）。
+        local overrideKnown = false
+        if not known and not playerSpell and IsSpellKnownOrOverridesKnown then
+            local ok1, r1 = pcall(IsSpellKnownOrOverridesKnown, entry.spellID)
+            local ok2, r2 = pcall(IsSpellKnownOrOverridesKnown, entry.spellID, true)
+            overrideKnown = (ok1 and r1) or (ok2 and r2) or false
+        end
         local name = GetSpellNameFunc(entry.spellID) or "?"
-        DebugPrint(string.format("  spell=%s id=%d known=%s playerSpell=%s",
-            name, entry.spellID, tostring(known), tostring(playerSpell)))
+        DebugPrint(string.format("  spell=%s id=%d known=%s playerSpell=%s overrideKnown=%s",
+            name, entry.spellID, tostring(known), tostring(playerSpell), tostring(overrideKnown)))
 
-        if known or playerSpell then
+        if known or playerSpell or overrideKnown then
             local types = {unpack(entry.types)}
             if entry.talent and IsPlayerSpell(entry.talent) then
                 for _, t in ipairs(entry.extraTypes) do
@@ -999,6 +1017,7 @@ eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
 eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+eventFrame:RegisterEvent("UNIT_PET")
 eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 eventFrame:RegisterEvent("GROUP_LEFT")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -1062,6 +1081,17 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         or event == "PLAYER_TALENT_UPDATE" then
         -- 专精/天赋变化可能让职业获得或失去驱散能力，必须重新判定。
         RefreshAll(true)
+    elseif event == "UNIT_PET" and arg1 == "player" then
+        -- 术士换宠物（如小鬼↔其他恶魔）会改变恶魔掌控的替换形态，
+        -- 烧灼驱魔随之出现/消失，必须重新判定。加 0.5s 延迟等 override
+        -- 状态在引擎侧更新完成。
+        C_Timer.After(0.5, function()
+            if not InCombatLockdown() then
+                RefreshAll(true)
+            else
+                petPendingRediscover = true
+            end
+        end)
     elseif event == "GROUP_ROSTER_UPDATE"
         or event == "GROUP_LEFT"
         or event == "COMPACT_UNIT_FRAME_PROFILES_LOADED"
@@ -1070,7 +1100,11 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         DelayedRefreshLayout()
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- 战斗结束后补上战斗中被推迟的布局与过滤器更新。
-        if addonEnabled and pendingUpdate then
+        if petPendingRediscover then
+            -- 战斗中宠物/技能形态变化被推迟，脱战后重新判定技能集合。
+            petPendingRediscover = false
+            RefreshAll(true)
+        elseif addonEnabled and pendingUpdate then
             RefreshLayout()
         end
     end
