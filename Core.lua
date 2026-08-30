@@ -667,17 +667,12 @@ local function SetButtonMacros(button, unit)
         if d.mouse then
             local text
             if d.warlock and d.commandName and d.grimoireName then
-                -- 术士双路径：
-                -- ①[pet:imp/小鬼] 恶魔掌控——小鬼在场时它被 override 为烧灼
-                --   驱魔。pet 条件参数匹配本地化宠物类型名：enUS=imp /
-                --   zhCN=小鬼，斜杠并列（OR 语义）覆盖两端。
-                -- ②魔典本体——魔典激活时施放魔典：小鬼领主（1276452）由
-                --   引擎路由到烧灼驱魔（132411 override 形态法术书按名字
-                --   查不到，直呼烧灼驱魔静默失败，用户实测）。点天赋未用
-                --   魔典时此行会施放魔典本体（开启魔典获得驱散，符合宽
-                --   松版语义）。
-                text = string.format("/cast [pet:imp/小鬼, @%s] %s\n/cast [@%s] %s",
-                    unit, d.commandName, unit, d.grimoireName)
+                -- 术士：施放魔典本体（1276452）——激活时由引擎路由到烧灼
+                -- 驱魔（override 形态法术书按名字查不到，用户实测）；点
+                -- 天赋未用魔典时施放即开启魔典获得驱散（宽松版语义）。
+                -- 多行/宠物条件宏在部分场景报"你需要一个目标"（用户实测
+                -- 恶魔猎犬+魔典），按用户要求退回单行直呼。
+                text = string.format("/cast [@%s] %s", unit, d.grimoireName)
             else
                 text = string.format("/cast [@%s] %s", unit, d.name)
             end
