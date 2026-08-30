@@ -164,7 +164,6 @@ local dispels = {}
 local buttons = {}
 local frameCache = {}
 local pendingUpdate = false
-local petPendingRediscover = false
 local addonEnabled = false
 local lastRefreshTime = 0
 local REFRESH_THROTTLE = 0.5
@@ -1024,7 +1023,6 @@ eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
 eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
-eventFrame:RegisterEvent("UNIT_PET")
 eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 eventFrame:RegisterEvent("GROUP_LEFT")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -1088,17 +1086,6 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         or event == "PLAYER_TALENT_UPDATE" then
         -- 专精/天赋变化可能让职业获得或失去驱散能力，必须重新判定。
         RefreshAll(true)
-    elseif event == "UNIT_PET" and arg1 == "player" then
-        -- 术士换宠物（如小鬼↔其他恶魔）会改变恶魔掌控的替换形态，
-        -- 烧灼驱魔随之出现/消失，必须重新判定。加 0.5s 延迟等 override
-        -- 状态在引擎侧更新完成。
-        C_Timer.After(0.5, function()
-            if not InCombatLockdown() then
-                RefreshAll(true)
-            else
-                petPendingRediscover = true
-            end
-        end)
     elseif event == "GROUP_ROSTER_UPDATE"
         or event == "GROUP_LEFT"
         or event == "COMPACT_UNIT_FRAME_PROFILES_LOADED"
@@ -1107,11 +1094,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         DelayedRefreshLayout()
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- 战斗结束后补上战斗中被推迟的布局与过滤器更新。
-        if petPendingRediscover then
-            -- 战斗中宠物/技能形态变化被推迟，脱战后重新判定技能集合。
-            petPendingRediscover = false
-            RefreshAll(true)
-        elseif addonEnabled and pendingUpdate then
+        if addonEnabled and pendingUpdate then
             RefreshLayout()
         end
     end
