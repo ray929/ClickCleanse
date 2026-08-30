@@ -166,7 +166,6 @@ local buttons = {}
 local frameCache = {}
 local pendingUpdate = false
 local petPendingRediscover = false
-local lastGrimoireAura = false
 local addonEnabled = false
 local lastRefreshTime = 0
 local REFRESH_THROTTLE = 0.5
@@ -433,20 +432,19 @@ local function PruneRedundantDispels()
     for i, d in ipairs(kept) do dispels[i] = d end
 end
 
--- 术士烧灼驱魔生效 spellID 解析：返回当前实际可施放的烧灼驱魔 ID，无则 nil。
--- ①魔典：小鬼领主光环（1276623）存在期间 → 魔典技能替换为 132411
---   （15s CD）。玩家自身光环 Lua 可读（12.1 保密限制只针对队友）。
+-- 术士烧灼驱魔生效 spellID 解析：返回用于绑定的烧灼驱魔 ID，无则 nil。
+-- ①点出天赋"魔典：小鬼领主"（1276452）→ 常驻绑定（宽松判断：能否实际
+--   施放不管，宏按技能名路由，技能不在时施放自然失败，用户明确要求）。
 -- ②小鬼宠物在场 → 恶魔掌控被 override 为 89808（经典 ID，12.1 实测有效），
 --   玩家侧 override 与宠物法术书两路探测。
 local WARLOCK_SINGE_SPELLS = { 132411, 89808 }
 
 local function ResolveWarlockSinge()
-    -- 魔典光环优先：buff 在身上即技能已替换。
-    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, 1276623)
-        if ok and aura then return 132411 end
+    -- 魔典天赋点出即绑定（技能名"烧灼驱魔"两条来源同名）。
+    if IsSpellKnownFunc(1276452) or IsPlayerSpell(1276452) then
+        return 132411
     end
-    -- 小鬼/魔典的 override 探测兜底（魔典替换状态引擎侧也可直接查到）。
+    -- 小鬼/魔典激活状态的 override 探测兜底。
     if IsSpellKnownOrOverridesKnown then
         for _, sid in ipairs(WARLOCK_SINGE_SPELLS) do
             local ok1, r1 = pcall(IsSpellKnownOrOverridesKnown, sid)
@@ -1058,7 +1056,6 @@ eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
 eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 eventFrame:RegisterEvent("UNIT_PET")
-eventFrame:RegisterEvent("UNIT_AURA")
 eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 eventFrame:RegisterEvent("GROUP_LEFT")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -1133,25 +1130,6 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
                 petPendingRediscover = true
             end
         end)
-    elseif event == "UNIT_AURA" and arg1 == "player" then
-        -- 术士"魔典：小鬼领主"光环（1276623）出现/消失会改变烧灼驱魔
-        -- 的可用性。UNIT_AURA 频繁触发，只关心该光环的状态翻转，其他
-        -- 自身光环变化直接忽略（不做全量重扫）。
-        if select(2, UnitClass("player")) ~= "WARLOCK" then return end
-        if not C_UnitAuras or not C_UnitAuras.GetPlayerAuraBySpellID then return end
-        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, 1276623)
-        local hasAura = (ok and aura ~= nil) or false
-        if hasAura ~= lastGrimoireAura then
-            lastGrimoireAura = hasAura
-            -- 去抖 0.5s：光环挂上/消失后技能替换状态需一点时间同步。
-            C_Timer.After(0.5, function()
-                if not InCombatLockdown() then
-                    RefreshAll(true)
-                else
-                    petPendingRediscover = true
-                end
-            end)
-        end
     elseif event == "GROUP_ROSTER_UPDATE"
         or event == "GROUP_LEFT"
         or event == "COMPACT_UNIT_FRAME_PROFILES_LOADED"
