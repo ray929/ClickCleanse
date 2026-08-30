@@ -661,14 +661,14 @@ local function SetButtonMacros(button, unit)
             local text
             if d.warlock and d.commandName then
                 -- 术士双路径：
-                -- ①[pet:imp] 恶魔掌控——小鬼在场时它被 override 为烧灼驱魔
-                --   （玩家技能，[@unit] 传递有效）。非小鬼宠物时恶魔掌控
-                --   override 成其他宠物技能（如虚空盾），必须 pet:imp 门控
-                --   防止误施放；宠物技能对 [@unit] 传递失败会报
-                --   "你没有一个目标"（用户实测）。
+                -- ①[pet:imp/小鬼] 恶魔掌控——小鬼在场时它被 override 为烧灼
+                --   驱魔（玩家技能，[@unit] 传递有效）。pet 条件参数匹配本地化
+                --   宠物类型名：enUS=imp / zhCN=小鬼，双 token 斜杠并列（OR
+                --   语义）覆盖两端。非小鬼宠物时恶魔掌控 override 成其他
+                --   宠物技能，必须 pet 门控防止误施放。
                 -- ②烧灼驱魔直呼——魔典激活时 132411 在玩家书，[@unit] 有效；
                 --   小鬼+魔典并存时第一行已命中（同为烧灼效果）。
-                text = string.format("/cast [pet:imp, @%s] %s\n/cast [@%s] %s",
+                text = string.format("/cast [pet:imp/小鬼, @%s] %s\n/cast [@%s] %s",
                     unit, d.commandName, unit, d.name)
             else
                 text = string.format("/cast [@%s] %s", unit, d.name)
