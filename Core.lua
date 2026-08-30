@@ -502,12 +502,18 @@ local function DiscoverDispels()
                     if not tContains(types, t) then table.insert(types, t) end
                 end
             end
-            local commandName
+            local commandName, grimoireName
             if entry.warlock then
-                -- 小鬼形态：玩家书里的恶魔掌控（119898）被 override 为烧灼
-                -- 驱魔效果，[@unit] 目标传递有效。非小鬼宠物时恶魔掌控会
-                -- override 成别的宠物技能，必须用宏条件 pet:imp 门控。
+                -- ①小鬼形态：玩家书里的恶魔掌控（119898）被 override 为烧灼
+                --   驱魔效果，[@unit] 目标传递有效。非小鬼宠物时恶魔掌控会
+                --   override 成别的宠物技能，必须用宏条件 pet:imp 门控。
+                -- ②魔典形态：施放"魔典：小鬼领主"本体（1276452）——/cast 按
+                --   名字只查法术书"已学"技能，烧灼驱魔（132411）是魔典的
+                --   override 替换形态，法术书按名字查不到（用户实测：恶魔
+                --   猎犬+魔典激活时 /cast 烧灼驱魔 静默失败）；施放魔典本
+                --   体由引擎路由到烧灼驱魔。名字含全角冒号，运行时解析。
                 commandName = GetSpellNameFunc(119898)
+                grimoireName = GetSpellNameFunc(1276452)
             end
             table.insert(dispels, {
                 spellID = spellID,
@@ -516,6 +522,7 @@ local function DiscoverDispels()
                 prio  = entry.prio,
                 warlock = entry.warlock or nil,
                 commandName = commandName,
+                grimoireName = grimoireName,
             })
         end
     end
@@ -659,17 +666,18 @@ local function SetButtonMacros(button, unit)
     for _, d in ipairs(dispels) do
         if d.mouse then
             local text
-            if d.warlock and d.commandName then
+            if d.warlock and d.commandName and d.grimoireName then
                 -- 术士双路径：
                 -- ①[pet:imp/小鬼] 恶魔掌控——小鬼在场时它被 override 为烧灼
-                --   驱魔（玩家技能，[@unit] 传递有效）。pet 条件参数匹配本地化
-                --   宠物类型名：enUS=imp / zhCN=小鬼，双 token 斜杠并列（OR
-                --   语义）覆盖两端。非小鬼宠物时恶魔掌控 override 成其他
-                --   宠物技能，必须 pet 门控防止误施放。
-                -- ②烧灼驱魔直呼——魔典激活时 132411 在玩家书，[@unit] 有效；
-                --   小鬼+魔典并存时第一行已命中（同为烧灼效果）。
+                --   驱魔。pet 条件参数匹配本地化宠物类型名：enUS=imp /
+                --   zhCN=小鬼，斜杠并列（OR 语义）覆盖两端。
+                -- ②魔典本体——魔典激活时施放魔典：小鬼领主（1276452）由
+                --   引擎路由到烧灼驱魔（132411 override 形态法术书按名字
+                --   查不到，直呼烧灼驱魔静默失败，用户实测）。点天赋未用
+                --   魔典时此行会施放魔典本体（开启魔典获得驱散，符合宽
+                --   松版语义）。
                 text = string.format("/cast [pet:imp/小鬼, @%s] %s\n/cast [@%s] %s",
-                    unit, d.commandName, unit, d.name)
+                    unit, d.commandName, unit, d.grimoireName)
             else
                 text = string.format("/cast [@%s] %s", unit, d.name)
             end
