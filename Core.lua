@@ -93,11 +93,14 @@ local DISPEL_SPELLS = {
         {spellID = 205604,types = {"Magic"},                    prio = 1}, -- Reverse Magic (PvP)
     },
     WARLOCK = {
-        -- 烧灼驱魔（Singe Magic，恶魔掌控在小鬼宠物下的替换形态；或点出
-        -- "魔典：小鬼领主"后由魔典技能替换而来）。驱散友方一个魔法效果。
-        -- 替换类技能检测走 IsSpellKnownOrOverridesKnown（玩家 override +
-        -- 宠物法术书两路），见 DiscoverDispels。
-        {spellID = 89808, types = {"Magic"},                     prio = 1},
+        -- 烧灼驱魔（Singe Magic）：驱散友方一个魔法效果。两条来源：
+        -- ①小鬼宠物：恶魔掌控被引擎 override 为烧灼驱魔（经典 ID 89808）。
+        -- ②魔典：小鬼领主（ID 1276452，2min CD，瞬发）：使用后获得 2min
+        --   光环（1276623，不可手动取消），期间魔典技能替换为烧灼驱魔
+        --   （ID 132411，15s CD）；光环消失即失去驱散能力。
+        -- 实际生效的 spellID 在 DiscoverDispels 里动态解析（ResolveWarlockSinge），
+        -- 宏按技能名"烧灼驱魔"路由，两条路径通用。
+        {spellID = 89808, types = {"Magic"}, prio = 1, warlock = true},
     },
 }
 
@@ -163,6 +166,7 @@ local buttons = {}
 local frameCache = {}
 local pendingUpdate = false
 local petPendingRediscover = false
+local lastGrimoireAura = false
 local addonEnabled = false
 local lastRefreshTime = 0
 local REFRESH_THROTTLE = 0.5
@@ -429,6 +433,31 @@ local function PruneRedundantDispels()
     for i, d in ipairs(kept) do dispels[i] = d end
 end
 
+-- 术士烧灼驱魔生效 spellID 解析：返回当前实际可施放的烧灼驱魔 ID，无则 nil。
+-- ①魔典：小鬼领主光环（1276623）存在期间 → 魔典技能替换为 132411
+--   （15s CD）。玩家自身光环 Lua 可读（12.1 保密限制只针对队友）。
+-- ②小鬼宠物在场 → 恶魔掌控被 override 为 89808（经典 ID，12.1 实测有效），
+--   玩家侧 override 与宠物法术书两路探测。
+local WARLOCK_SINGE_SPELLS = { 132411, 89808 }
+
+local function ResolveWarlockSinge()
+    -- 魔典光环优先：buff 在身上即技能已替换。
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, 1276623)
+        if ok and aura then return 132411 end
+    end
+    -- 小鬼/魔典的 override 探测兜底（魔典替换状态引擎侧也可直接查到）。
+    if IsSpellKnownOrOverridesKnown then
+        for _, sid in ipairs(WARLOCK_SINGE_SPELLS) do
+            local ok1, r1 = pcall(IsSpellKnownOrOverridesKnown, sid)
+            if ok1 and r1 then return sid end
+            local ok2, r2 = pcall(IsSpellKnownOrOverridesKnown, sid, true)
+            if ok2 and r2 then return sid end
+        end
+    end
+    return nil
+end
+
 local function DiscoverDispels()
     wipe(dispels)
     local _, class = UnitClass("player")
@@ -441,23 +470,34 @@ local function DiscoverDispels()
     if not list then return dispels end
 
     for _, entry in ipairs(list) do
-        local known = IsSpellKnownFunc(entry.spellID)
-        local playerSpell = IsPlayerSpell(entry.spellID)
-        -- 替换类技能（如术士烧灼驱魔：恶魔掌控在小鬼下被 override，或
-        -- "魔典：小鬼领主"替换）不在普通 IsSpellKnown 里，需要 override 探测。
-        -- 两个维度：玩家侧 override（魔典路径）+ 宠物法术书（小鬼自带
-        -- Singe Magic，第二个参数 true 查宠物侧）。
+        local spellID = entry.spellID
+        if entry.warlock then
+            -- 术士烧灼驱魔：两条来源动态解析，不走常规 known 检测
+            --（替换技能普通 IsSpellKnown 查不到）。
+            spellID = ResolveWarlockSinge()
+        end
+        local known = (spellID and IsSpellKnownFunc(spellID)) or false
+        local playerSpell = (spellID and IsPlayerSpell(spellID)) or false
+        -- 替换类技能（如恶魔掌控/魔典被 override）不在普通 IsSpellKnown 里，
+        -- 需要 override 探测：玩家侧（无参）+ 宠物法术书（第二参 true）。
         local overrideKnown = false
-        if not known and not playerSpell and IsSpellKnownOrOverridesKnown then
-            local ok1, r1 = pcall(IsSpellKnownOrOverridesKnown, entry.spellID)
-            local ok2, r2 = pcall(IsSpellKnownOrOverridesKnown, entry.spellID, true)
+        if not known and not playerSpell and spellID and IsSpellKnownOrOverridesKnown then
+            local ok1, r1 = pcall(IsSpellKnownOrOverridesKnown, spellID)
+            local ok2, r2 = pcall(IsSpellKnownOrOverridesKnown, spellID, true)
             overrideKnown = (ok1 and r1) or (ok2 and r2) or false
         end
-        local name = GetSpellNameFunc(entry.spellID) or "?"
-        DebugPrint(string.format("  spell=%s id=%d known=%s playerSpell=%s overrideKnown=%s",
-            name, entry.spellID, tostring(known), tostring(playerSpell), tostring(overrideKnown)))
+        local name = (spellID and GetSpellNameFunc(spellID)) or "?"
+        DebugPrint(string.format("  spell=%s id=%s known=%s playerSpell=%s overrideKnown=%s",
+            name, tostring(spellID), tostring(known), tostring(playerSpell), tostring(overrideKnown)))
 
-        if known or playerSpell or overrideKnown then
+        local active
+        if entry.warlock then
+            active = (spellID ~= nil)
+        else
+            active = (known or playerSpell or overrideKnown)
+        end
+
+        if active then
             local types = {unpack(entry.types)}
             if entry.talent and IsPlayerSpell(entry.talent) then
                 for _, t in ipairs(entry.extraTypes) do
@@ -465,7 +505,7 @@ local function DiscoverDispels()
                 end
             end
             table.insert(dispels, {
-                spellID = entry.spellID,
+                spellID = spellID,
                 name  = name,
                 types = types,
                 prio  = entry.prio,
@@ -1018,6 +1058,7 @@ eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
 eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 eventFrame:RegisterEvent("UNIT_PET")
+eventFrame:RegisterEvent("UNIT_AURA")
 eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 eventFrame:RegisterEvent("GROUP_LEFT")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -1092,6 +1133,25 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
                 petPendingRediscover = true
             end
         end)
+    elseif event == "UNIT_AURA" and arg1 == "player" then
+        -- 术士"魔典：小鬼领主"光环（1276623）出现/消失会改变烧灼驱魔
+        -- 的可用性。UNIT_AURA 频繁触发，只关心该光环的状态翻转，其他
+        -- 自身光环变化直接忽略（不做全量重扫）。
+        if select(2, UnitClass("player")) ~= "WARLOCK" then return end
+        if not C_UnitAuras or not C_UnitAuras.GetPlayerAuraBySpellID then return end
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, 1276623)
+        local hasAura = (ok and aura ~= nil) or false
+        if hasAura ~= lastGrimoireAura then
+            lastGrimoireAura = hasAura
+            -- 去抖 0.5s：光环挂上/消失后技能替换状态需一点时间同步。
+            C_Timer.After(0.5, function()
+                if not InCombatLockdown() then
+                    RefreshAll(true)
+                else
+                    petPendingRediscover = true
+                end
+            end)
+        end
     elseif event == "GROUP_ROSTER_UPDATE"
         or event == "GROUP_LEFT"
         or event == "COMPACT_UNIT_FRAME_PROFILES_LOADED"
