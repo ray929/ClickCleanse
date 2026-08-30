@@ -502,23 +502,20 @@ local function DiscoverDispels()
                     if not tContains(types, t) then table.insert(types, t) end
                 end
             end
-            local extraMacroNames
+            local commandName
             if entry.warlock then
-                -- 烧灼驱魔按名字施放只搜玩家法术书：魔典形态（132411）在
-                -- 书里可直呼其名；小鬼形态下"烧灼驱魔"是宠物技能，玩家书
-                -- 里的实际技能是恶魔掌控（119898，被引擎 override 为烧灼
-                -- 驱魔效果）。宏做双行 fallback：第一行失败自动落第二行。
-                local cmdName = GetSpellNameFunc(119898)
-                if cmdName and cmdName ~= name then
-                    extraMacroNames = {cmdName}
-                end
+                -- 小鬼形态：玩家书里的恶魔掌控（119898）被 override 为烧灼
+                -- 驱魔效果，[@unit] 目标传递有效。非小鬼宠物时恶魔掌控会
+                -- override 成别的宠物技能，必须用宏条件 pet:imp 门控。
+                commandName = GetSpellNameFunc(119898)
             end
             table.insert(dispels, {
                 spellID = spellID,
                 name  = name,
                 types = types,
                 prio  = entry.prio,
-                extraMacroNames = extraMacroNames,
+                warlock = entry.warlock or nil,
+                commandName = commandName,
             })
         end
     end
@@ -661,15 +658,23 @@ local function SetButtonMacros(button, unit)
     end
     for _, d in ipairs(dispels) do
         if d.mouse then
-            -- 单行宏；条目带 extraMacroNames（术士烧灼驱魔双路径）时
-            -- 追加 fallback 行：第一行施放失败（法术书查无此名）时宏
-            -- 继续执行下一行，覆盖宠物 override 形态。
-            local lines = {string.format("/cast [@%s] %s", unit, d.name)}
-            for _, extraName in ipairs(d.extraMacroNames or {}) do
-                table.insert(lines, string.format("/cast [@%s] %s", unit, extraName))
+            local text
+            if d.warlock and d.commandName then
+                -- 术士双路径：
+                -- ①[pet:imp] 恶魔掌控——小鬼在场时它被 override 为烧灼驱魔
+                --   （玩家技能，[@unit] 传递有效）。非小鬼宠物时恶魔掌控
+                --   override 成其他宠物技能（如虚空盾），必须 pet:imp 门控
+                --   防止误施放；宠物技能对 [@unit] 传递失败会报
+                --   "你没有一个目标"（用户实测）。
+                -- ②烧灼驱魔直呼——魔典激活时 132411 在玩家书，[@unit] 有效；
+                --   小鬼+魔典并存时第一行已命中（同为烧灼效果）。
+                text = string.format("/cast [pet:imp, @%s] %s\n/cast [@%s] %s",
+                    unit, d.commandName, unit, d.name)
+            else
+                text = string.format("/cast [@%s] %s", unit, d.name)
             end
             button:SetAttribute("type"..d.mouse, "macro")
-            button:SetAttribute("macrotext"..d.mouse, table.concat(lines, "\n"))
+            button:SetAttribute("macrotext"..d.mouse, text)
         end
     end
 end
