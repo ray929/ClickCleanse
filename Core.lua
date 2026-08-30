@@ -93,14 +93,13 @@ local DISPEL_SPELLS = {
         {spellID = 205604,types = {"Magic"},                    prio = 1}, -- Reverse Magic (PvP)
     },
     WARLOCK = {
-        -- 烧灼驱魔（Singe Magic）：驱散友方一个魔法效果。两条来源：
-        -- ①小鬼宠物：恶魔掌控被引擎 override 为烧灼驱魔（经典 ID 89808）。
-        -- ②魔典：小鬼领主（ID 1276452，2min CD，瞬发）：使用后获得 2min
-        --   光环（1276623，不可手动取消），期间魔典技能替换为烧灼驱魔
-        --   （ID 132411，15s CD）；光环消失即失去驱散能力。
-        -- 实际生效的 spellID 在 DiscoverDispels 里动态解析（ResolveWarlockSinge），
-        -- 宏按技能名"烧灼驱魔"路由，两条路径通用。
-        {spellID = 89808, types = {"Magic"}, prio = 1, warlock = true},
+        -- 烧灼驱魔（Singe Magic）：驱散友方一个魔法效果。宽松绑定（用户
+        -- 明确要求）：不检测天赋/宠物/override 状态，职业为术士即默认
+        -- 可用。来源参考：①小鬼宠物（恶魔掌控 override 形态，89808）；
+        -- ②魔典：小鬼领主（1276452）激活期间替换为 132411（15s CD）。
+        -- 绑定用 132411 的名字（zhCN"烧灼驱魔"），能否实际施放由游戏
+        -- 运行时判断，宏失败无害。
+        {spellID = 132411, types = {"Magic"}, prio = 1, warlock = true},
     },
 }
 
@@ -432,30 +431,6 @@ local function PruneRedundantDispels()
     for i, d in ipairs(kept) do dispels[i] = d end
 end
 
--- 术士烧灼驱魔生效 spellID 解析：返回用于绑定的烧灼驱魔 ID，无则 nil。
--- ①点出天赋"魔典：小鬼领主"（1276452）→ 常驻绑定（宽松判断：能否实际
---   施放不管，宏按技能名路由，技能不在时施放自然失败，用户明确要求）。
--- ②小鬼宠物在场 → 恶魔掌控被 override 为 89808（经典 ID，12.1 实测有效），
---   玩家侧 override 与宠物法术书两路探测。
-local WARLOCK_SINGE_SPELLS = { 132411, 89808 }
-
-local function ResolveWarlockSinge()
-    -- 魔典天赋点出即绑定（技能名"烧灼驱魔"两条来源同名）。
-    if IsSpellKnownFunc(1276452) or IsPlayerSpell(1276452) then
-        return 132411
-    end
-    -- 小鬼/魔典激活状态的 override 探测兜底。
-    if IsSpellKnownOrOverridesKnown then
-        for _, sid in ipairs(WARLOCK_SINGE_SPELLS) do
-            local ok1, r1 = pcall(IsSpellKnownOrOverridesKnown, sid)
-            if ok1 and r1 then return sid end
-            local ok2, r2 = pcall(IsSpellKnownOrOverridesKnown, sid, true)
-            if ok2 and r2 then return sid end
-        end
-    end
-    return nil
-end
-
 local function DiscoverDispels()
     wipe(dispels)
     local _, class = UnitClass("player")
@@ -469,30 +444,21 @@ local function DiscoverDispels()
 
     for _, entry in ipairs(list) do
         local spellID = entry.spellID
-        if entry.warlock then
-            -- 术士烧灼驱魔：两条来源动态解析，不走常规 known 检测
-            --（替换技能普通 IsSpellKnown 查不到）。
-            spellID = ResolveWarlockSinge()
-        end
-        local known = (spellID and IsSpellKnownFunc(spellID)) or false
-        local playerSpell = (spellID and IsPlayerSpell(spellID)) or false
-        -- 替换类技能（如恶魔掌控/魔典被 override）不在普通 IsSpellKnown 里，
-        -- 需要 override 探测：玩家侧（无参）+ 宠物法术书（第二参 true）。
-        local overrideKnown = false
-        if not known and not playerSpell and spellID and IsSpellKnownOrOverridesKnown then
-            local ok1, r1 = pcall(IsSpellKnownOrOverridesKnown, spellID)
-            local ok2, r2 = pcall(IsSpellKnownOrOverridesKnown, spellID, true)
-            overrideKnown = (ok1 and r1) or (ok2 and r2) or false
-        end
         local name = (spellID and GetSpellNameFunc(spellID)) or "?"
-        DebugPrint(string.format("  spell=%s id=%s known=%s playerSpell=%s overrideKnown=%s",
-            name, tostring(spellID), tostring(known), tostring(playerSpell), tostring(overrideKnown)))
+        DebugPrint(string.format("  spell=%s id=%s warlock=%s",
+            name, tostring(spellID), tostring(entry.warlock or false)))
 
         local active
         if entry.warlock then
-            active = (spellID ~= nil)
+            -- 术士宽松绑定（用户明确要求）：不做 known/天赋/override 检测，
+            -- 职业为术士即默认能用烧灼驱魔驱散魔法。能否实际施放由游戏
+            -- 运行时判断，宏失败无害。
+            active = true
         else
-            active = (known or playerSpell or overrideKnown)
+            active = IsSpellKnownFunc(spellID) or IsPlayerSpell(spellID)
+                or (IsSpellKnownOrOverridesKnown and (
+                    select(2, pcall(IsSpellKnownOrOverridesKnown, spellID))
+                    or select(2, pcall(IsSpellKnownOrOverridesKnown, spellID, true))))
         end
 
         if active then
@@ -502,27 +468,11 @@ local function DiscoverDispels()
                     if not tContains(types, t) then table.insert(types, t) end
                 end
             end
-            local commandName, grimoireName
-            if entry.warlock then
-                -- ①小鬼形态：玩家书里的恶魔掌控（119898）被 override 为烧灼
-                --   驱魔效果，[@unit] 目标传递有效。非小鬼宠物时恶魔掌控会
-                --   override 成别的宠物技能，必须用宏条件 pet:imp 门控。
-                -- ②魔典形态：施放"魔典：小鬼领主"本体（1276452）——/cast 按
-                --   名字只查法术书"已学"技能，烧灼驱魔（132411）是魔典的
-                --   override 替换形态，法术书按名字查不到（用户实测：恶魔
-                --   猎犬+魔典激活时 /cast 烧灼驱魔 静默失败）；施放魔典本
-                --   体由引擎路由到烧灼驱魔。名字含全角冒号，运行时解析。
-                commandName = GetSpellNameFunc(119898)
-                grimoireName = GetSpellNameFunc(1276452)
-            end
             table.insert(dispels, {
                 spellID = spellID,
                 name  = name,
                 types = types,
                 prio  = entry.prio,
-                warlock = entry.warlock or nil,
-                commandName = commandName,
-                grimoireName = grimoireName,
             })
         end
     end
