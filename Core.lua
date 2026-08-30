@@ -616,14 +616,16 @@ local function SetButtonMacros(button, unit)
         if d.mouse then
             local text
             if d.spellID == 132411 then
-                -- 术士双行宏（用户实测反馈）：①直呼烧灼驱魔——小鬼在场时
-                -- 生效（下坐骑后验证可用）；非小鬼+魔典激活时它是 override
-                -- 替换形态，法术书按名字查不到，静默失败，宏继续走第二行
-                -- ②施放魔典：小鬼领主本体（1276452）——引擎路由到烧灼驱
-                -- 魔；未开魔典时点下去=开启魔典获得驱散（宽松语义）。魔
-                -- 典名含全角冒号，运行时解析。
+                -- 术士分号分支宏：①[pet:imp/小鬼] 直呼烧灼驱魔——小鬼在
+                -- 场时恶魔掌控被 override 为烧灼驱魔，玩家书可按名施放
+                -- （用户实测可用，注意坐骑上宠物技能不可用）；②[nopet:
+                -- imp/小鬼] 施放魔典：小鬼领主本体（1276452）——魔典激活
+                -- 时引擎路由到烧灼驱魔，未激活时点下去=开启魔典获得驱散
+                -- （宽松语义）。宠物类型名是本地化的，enUS=imp / zhCN=
+                -- 小鬼，斜杠 OR 并列覆盖两端。名字含全角冒号，运行时解析。
                 local grimoire = GetSpellNameFunc(1276452) or "魔典：小鬼领主"
-                text = string.format("/cast [@%s] %s\n/cast [@%s] %s",
+                text = string.format(
+                    "/cast [pet:imp/小鬼, @%s] %s; [nopet:imp/小鬼, @%s] %s",
                     unit, d.name, unit, grimoire)
             else
                 text = string.format("/cast [@%s] %s", unit, d.name)
