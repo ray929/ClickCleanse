@@ -614,12 +614,22 @@ local function SetButtonMacros(button, unit)
     end
     for _, d in ipairs(dispels) do
         if d.mouse then
-            -- 单行宏直呼技能名（含术士烧灼驱魔：魔典激活时 132411 名字
-            -- 可解析；小鬼形态依赖引擎 override 路由）。按用户实测反馈，
-            -- 多行/pet 条件宏在部分场景报"你需要一个目标"，退回单行。
+            local text
+            if d.spellID == 132411 then
+                -- 术士双行宏（用户实测反馈）：①直呼烧灼驱魔——小鬼在场时
+                -- 生效（下坐骑后验证可用）；非小鬼+魔典激活时它是 override
+                -- 替换形态，法术书按名字查不到，静默失败，宏继续走第二行
+                -- ②施放魔典：小鬼领主本体（1276452）——引擎路由到烧灼驱
+                -- 魔；未开魔典时点下去=开启魔典获得驱散（宽松语义）。魔
+                -- 典名含全角冒号，运行时解析。
+                local grimoire = GetSpellNameFunc(1276452) or "魔典：小鬼领主"
+                text = string.format("/cast [@%s] %s\n/cast [@%s] %s",
+                    unit, d.name, unit, grimoire)
+            else
+                text = string.format("/cast [@%s] %s", unit, d.name)
+            end
             button:SetAttribute("type"..d.mouse, "macro")
-            button:SetAttribute("macrotext"..d.mouse,
-                string.format("/cast [@%s] %s", unit, d.name))
+            button:SetAttribute("macrotext"..d.mouse, text)
         end
     end
 end
