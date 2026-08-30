@@ -167,6 +167,25 @@ local pendingUpdate = false
 local addonEnabled = false
 local lastRefreshTime = 0
 local REFRESH_THROTTLE = 0.5
+
+-- 受保护框架（SecureActionButton 带 macrotext）的 Show/Hide 在战斗中会
+-- ADDON_ACTION_BLOCKED。所有按钮级 Show/Hide 都走这两个包装函数；若当前
+-- 处于战斗则只挂起 pendingUpdate，脱战后由 PLAYER_REGEN_ENABLED 重跑。
+local function SafeShow(frame)
+    if InCombatLockdown() then
+        pendingUpdate = true
+        return
+    end
+    frame:Show()
+end
+
+local function SafeHide(frame)
+    if InCombatLockdown() then
+        pendingUpdate = true
+        return
+    end
+    frame:Hide()
+end
 local lastBindingString = ""
 local dispelConfigVersion = 0
 
@@ -926,7 +945,7 @@ local function RefreshLayout(isBootstrap)
     -- 频繁触发，不跳过的话纯属浪费）。
     if not ShouldShow() then
         for _, button in pairs(buttons) do
-            button:Hide()
+            SafeHide(button)
         end
         return
     end
@@ -983,7 +1002,7 @@ local function RefreshLayout(isBootstrap)
                 end
 
                 SetButtonMacros(button, unit)
-                button:Show()
+                SafeShow(button)
                 UpdateButtonVisual(button, unit)
 
                 if IsDebugEnabled() and isBootstrap then
@@ -997,10 +1016,10 @@ local function RefreshLayout(isBootstrap)
                         unit, w, h, lvl, pName, tostring(ok and enabled or false), tostring(macroType), tostring(macroText), tostring(button.auraContainer ~= nil)))
                 end
             else
-                button:Hide()
+                SafeHide(button)
             end
         else
-            button:Hide()
+            SafeHide(button)
         end
     end
 end
@@ -1021,7 +1040,7 @@ local function RefreshAll(rediscover, skipLayout)
         end
         -- 当前职业/专精没有驱散技能：完全禁用，隐藏所有方块。
         for _, button in pairs(buttons) do
-            button:Hide()
+            SafeHide(button)
         end
         return
     end
@@ -1113,17 +1132,10 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         DelayedRefreshLayout()
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- 战斗结束后补上战斗中被推迟的布局与过滤器更新。
+        -- 统一重跑 RefreshAll：有驱散则刷新布局，无驱散则隐藏全部方块。
         if pendingUpdate then
-            if addonEnabled then
-                RefreshLayout()
-            else
-                -- 战斗中被判定为无驱散能力（#dispels==0 挂起）：脱战后
-                -- 补隐藏全部方块。
-                pendingUpdate = false
-                for _, button in pairs(buttons) do
-                    button:Hide()
-                end
-            end
+            pendingUpdate = false
+            RefreshAll(false)
         end
     end
 end)
