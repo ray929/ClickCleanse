@@ -502,11 +502,23 @@ local function DiscoverDispels()
                     if not tContains(types, t) then table.insert(types, t) end
                 end
             end
+            local extraMacroNames
+            if entry.warlock then
+                -- 烧灼驱魔按名字施放只搜玩家法术书：魔典形态（132411）在
+                -- 书里可直呼其名；小鬼形态下"烧灼驱魔"是宠物技能，玩家书
+                -- 里的实际技能是恶魔掌控（119898，被引擎 override 为烧灼
+                -- 驱魔效果）。宏做双行 fallback：第一行失败自动落第二行。
+                local cmdName = GetSpellNameFunc(119898)
+                if cmdName and cmdName ~= name then
+                    extraMacroNames = {cmdName}
+                end
+            end
             table.insert(dispels, {
                 spellID = spellID,
                 name  = name,
                 types = types,
                 prio  = entry.prio,
+                extraMacroNames = extraMacroNames,
             })
         end
     end
@@ -649,9 +661,15 @@ local function SetButtonMacros(button, unit)
     end
     for _, d in ipairs(dispels) do
         if d.mouse then
+            -- 单行宏；条目带 extraMacroNames（术士烧灼驱魔双路径）时
+            -- 追加 fallback 行：第一行施放失败（法术书查无此名）时宏
+            -- 继续执行下一行，覆盖宠物 override 形态。
+            local lines = {string.format("/cast [@%s] %s", unit, d.name)}
+            for _, extraName in ipairs(d.extraMacroNames or {}) do
+                table.insert(lines, string.format("/cast [@%s] %s", unit, extraName))
+            end
             button:SetAttribute("type"..d.mouse, "macro")
-            button:SetAttribute("macrotext"..d.mouse,
-                string.format("/cast [@%s] %s", unit, d.name))
+            button:SetAttribute("macrotext"..d.mouse, table.concat(lines, "\n"))
         end
     end
 end
