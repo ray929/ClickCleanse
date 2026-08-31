@@ -1,12 +1,12 @@
 ## Interface: 120100
-## Author: ray929
-## Version: @project-version@
 ## Title: ClickCleanse
 ## Title-zhCN: 点击驱散
 ## Notes: A clickable square by each party bar: lights up in the debuff's color when dispellable — click to cleanse.
 ## Notes-zhCN: 队友血条旁的可点击小方块：出现可驱散减益时变色亮边，点击即驱散。
 ## IconTexture: Interface\Icons\Spell_Shadow_Curse
 ## SavedVariables: ClickCleanseDB
+## Author: ray929
+## Version: @project-version@
 ## DefaultState: enabled
 ## Category: Combat
 ## X-Curse-Project-ID: 1663511
