@@ -1183,6 +1183,14 @@ local ticker = CreateFrame("Frame")
 ticker.elapsed = 0
 ticker.lastDurObj = nil   -- 上次喂入的 DurationObject（引用比较，非数值比较，安全）
 ticker.cleared = false    -- 无 CD 状态是否已 Clear 过
+ticker.debugThrottle = 0  -- 调试用：限制日志频率
+local function TickerDebug(msg)
+    if not IsDebugEnabled() then return end
+    local now = GetTime()
+    if now - (ticker.debugThrottle or 0) < 2 then return end
+    ticker.debugThrottle = now
+    DebugPrint(msg)
+end
 ticker:SetScript("OnUpdate", function(self, elapsed)
     self.elapsed = self.elapsed + elapsed
     if self.elapsed < 0.1 then return end
@@ -1200,6 +1208,8 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
             self.cleared = true
             self.lastDurObj = nil
         end
+        TickerDebug(string.format("ticker: early exit (#dispels=%d GetSpellCooldownFunc=%s)",
+            #dispels, tostring(GetSpellCooldownFunc ~= nil)))
         return
     end
 
@@ -1211,8 +1221,13 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
     if C_Spell and C_Spell.GetSpellCooldownDuration then
         for i = 1, #dispels do
             local scd = GetSpellCooldownFunc(dispels[i].spellID)
+            TickerDebug(string.format("ticker: spell=%s isActive=%s isOnGCD=%s",
+                tostring(dispels[i].spellID),
+                tostring(scd and scd.isActive),
+                tostring(scd and scd.isOnGCD)))
             if scd and scd.isActive == true then
                 local obj = C_Spell.GetSpellCooldownDuration(dispels[i].spellID)
+                TickerDebug(string.format("ticker: GetSpellCooldownDuration -> %s", tostring(obj ~= nil)))
                 if obj then
                     if scd.isOnGCD ~= true then
                         cdObj = obj
@@ -1223,6 +1238,8 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
                 end
             end
         end
+    else
+        TickerDebug("ticker: C_Spell.GetSpellCooldownDuration unavailable")
     end
 
     -- 组合规则（2026-08-27 两全版）：
@@ -1246,17 +1263,26 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
             if button.cooldown then button.cooldown:Clear() end
         end
         self.cleared = true
+        TickerDebug("ticker: cleared (no durObj)")
     elseif durObj then
         self.cleared = false
     end
     self.lastDurObj = durObj
     if not (durObj and durObjChanged) then return end
 
+    TickerDebug(string.format("ticker: feeding durObj (cdObj=%s gcdObj=%s hasDebuff=%s)",
+        tostring(cdObj ~= nil), tostring(gcdObj ~= nil), tostring(HasActiveDebuff())))
+
     local size = GetSquareSize()
     for _, button in pairs(buttons) do
         local cd = button.cooldown
         if cd and button:IsShown() then
-            pcall(cd.SetCooldownFromDurationObject, cd, durObj)
+            local ok, err = pcall(cd.SetCooldownFromDurationObject, cd, durObj)
+            if not ok then
+                TickerDebug(string.format("SetCooldownFromDurationObject failed: %s", tostring(err)))
+            else
+                TickerDebug(string.format("%s -> SetCooldownFromDurationObject OK", button:GetName() or "?"))
+            end
             -- 内置倒计时数字 FontString 首次喂入后才创建，字体后置应用
             -- （幂等；数字 FontString 带 secret aspect，SetFont 必须 pcall）。
             if button.cdFontKey ~= size then
