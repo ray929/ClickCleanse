@@ -297,6 +297,9 @@ local function InitializeManagedAuraButton(auraButton, host)
     -- 隐藏），ticker 借此判断"当前是否有可驱散减益"——战斗中贴图可见性
     -- 是干净的渲染状态（非 secret 数值），且读取永远在引擎侧完成。
     auraButton.fillTex = fill
+    -- 同引用挂在方块按钮上（host）：HasActiveDebuff 遍历 buttons（方块），
+    -- 引擎点亮的是托管槽按钮上的这张贴图，二者须指向同一纹理对象。
+    host.fillTex = fill
 
     local styleEnum = _G.Enum and _G.Enum.CustomAuraButtonDispelTypeTextureStyle
     if dispelCurve and styleEnum and styleEnum.PreserveAsset and auraButton.AddDispelTypeTexture then
