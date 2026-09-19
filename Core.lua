@@ -1157,16 +1157,32 @@ end
 
 -- 判定当前是否存在可驱散 debuff：任一托管按钮的整层填充贴图被引擎点亮
 -- （有匹配 aura 时引擎 Show 填充并设 alpha，无 aura 时隐藏/alpha=0）。
--- 贴图可见性是干净的渲染状态（非 secret），pcall 兜底；读取失败视为
--- "有 debuff"（宁可多显示 CD 也不误清）。
+--
+-- ⚠️ 关键：AddDispelTypeTexture 会给该贴图打上 secret aspect
+-- （Alpha / VertexColor / TexCoords / Shown，见 Blizzard_CustomAuraButton.lua），
+-- 一旦值由保密数据驱动，GetAlpha / IsShown 就返回 secret 值，而对 secret 值
+-- 做比较或布尔测试在插件代码里会**直接抛错**。所以"读不到"与"确实没有 debuff"
+-- 是两种必须区分的情况：
+--   * 只有【明确读到】alpha <= 0 或 Shown == false，才算"无 debuff"；
+--   * 读不到（pcall 失败，或 canaccessvalue 判定不可读）一律按"有 debuff"处理
+--     ——宁可多显示 CD 也不误清。否则真 CD 会在战斗/副本里被误判成"无 debuff"
+--     而整段吞掉，正是本插件最需要 CD 的场景反而没有 CD。
+local canAccessValue = _G.canaccessvalue or function() return true end
+
 local function HasActiveDebuff()
     for _, button in pairs(buttons) do
         local ft = button.fillTex
         if ft then
             local ok, shown = pcall(function()
-                return ft:IsShown() and ft:GetAlpha() > 0
+                local alpha = ft:GetAlpha()
+                if not canAccessValue(alpha) then return true end
+                if not (alpha > 0) then return false end
+                local isShown = ft:IsShown()
+                if not canAccessValue(isShown) then return true end
+                return isShown == true
             end)
-            if ok and shown then return true end
+            if not ok then return true end
+            if shown then return true end
         end
     end
     return false
