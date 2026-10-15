@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120105
 ## Title: ClickCleanse
 ## Title-zhCN: 点击驱散
 ## Notes: A clickable square by each party bar: lights up in the debuff's color when dispellable — click to cleanse.
