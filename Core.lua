@@ -71,11 +71,17 @@ local DISPEL_SPELLS = {
         {spellID = 213644,types = {"Poison", "Disease"},          prio = 2}, -- Cleanse Toxins
     },
     PRIEST = {
-        {spellID = 527,   types = {"Magic"},                   prio = 1}, -- Purify
+        -- Improved Purify (390632) 点出后 Purify 追加疾病（对照 Decursive RC3：
+        -- IMPROVED_PURIFY 增强检查；用于 213634 未学而天赋已点的场景，需实测确认）。
+        {spellID = 527,   types = {"Magic"},                   prio = 1, -- Purify
+                  talent = 390632, extraTypes = {"Disease"}},
         {spellID = 213634,types = {"Disease"},                  prio = 2}, -- Purify Disease
     },
     SHAMAN = {
-        {spellID = 77130, types = {"Magic", "Curse"},           prio = 1}, -- Purify Spirit
+        -- Purify Spirit 基础只有魔法，诅咒需天赋 Improved Purify Spirit
+        -- (383016)（对照 Decursive RC3：IMPROVED_PURIFY_SPIRIT 增强检查）。
+        {spellID = 77130, types = {"Magic"},                    prio = 1, -- Purify Spirit
+                  talent = 383016, extraTypes = {"Curse"}},
         {spellID = 51886, types = {"Curse"},                    prio = 2}, -- Cleanse Spirit
         {spellID = 383013,types = {"Poison"},                   prio = 3}, -- Poison Cleansing Totem (AoE 脉冲驱毒，落地即生效，[@unit] 由引擎忽略)
     },
@@ -386,6 +392,10 @@ local function AttachManagedAura(button, unit)
                 InitializeManagedAuraButton(auraButton, button)
             end,
             candidateFilters = { includeDispelTypes = BuildDispelTypeFilter() },
+            -- 固定排序（Decursive RC3 同款）：同单位多个不同类型 debuff 时，
+            -- 槽按钮显示的类型色保持稳定，不在光环更新间跳动。
+            sortMethod = 0,
+            sortDirection = 0,
         }
         local okSlot, slotButton = pcall(container.AddAuraSlot, container, AURA_SLOT_KEY, AURA_FILTER, options)
         if okSlot and slotButton then
@@ -452,6 +462,21 @@ local function PruneRedundantDispels()
     for i, d in ipairs(kept) do dispels[i] = d end
 end
 
+-- 类型名按驱散配色着色（聊天打印用）：|cFFRRGGBB + 本地化类型名。
+-- 颜色取自 DISPEL_COLORS（与方块填充同源，改配色自动跟随）。
+local function ColoredTypeName(typeName)
+    local name = (L.TEST_TYPE_NAMES and L.TEST_TYPE_NAMES[typeName]) or typeName
+    local c = DISPEL_COLORS[typeName]
+    if c then
+        return string.format("|cFF%02X%02X%02X%s|r",
+            math.floor(c[1] * 255 + 0.5),
+            math.floor(c[2] * 255 + 0.5),
+            math.floor(c[3] * 255 + 0.5),
+            name)
+    end
+    return name
+end
+
 local function DiscoverDispels()
     wipe(dispels)
     local _, class = UnitClass("player")
@@ -476,10 +501,12 @@ local function DiscoverDispels()
             -- 运行时判断，宏失败无害。
             active = true
         else
+            -- pcall 失败时 select(2,...) 拿到的是错误消息字符串（truthy），
+            -- 必须与 true 精确比较，否则"调用报错"会被误判成"已学"。
             active = IsSpellKnownFunc(spellID) or IsPlayerSpell(spellID)
                 or (IsSpellKnownOrOverridesKnown and (
-                    select(2, pcall(IsSpellKnownOrOverridesKnown, spellID))
-                    or select(2, pcall(IsSpellKnownOrOverridesKnown, spellID, true))))
+                    select(2, pcall(IsSpellKnownOrOverridesKnown, spellID)) == true
+                    or select(2, pcall(IsSpellKnownOrOverridesKnown, spellID, true)) == true))
         end
 
         if active then
@@ -516,7 +543,18 @@ local function DiscoverDispels()
         local parts = {}
         for _, d in ipairs(dispels) do
             if d.mouse then
-                table.insert(parts, string.format(L.BINDING_FORMAT or "%s: %s", d.label or "", d.name or ""))
+                -- 绑定说明附各技能的可驱散类型（按类型着色）。类型纳入
+                -- lastBindingString 比对：天赋只改类型（如净化灵魂获得
+                -- 诅咒）而绑定技能不变时，也能触发打印、不再静默。
+                local line = string.format(L.BINDING_FORMAT or "%s: %s", d.label or "", d.name or "")
+                local typeNames = {}
+                for _, t in ipairs(d.types) do
+                    table.insert(typeNames, ColoredTypeName(t))
+                end
+                if #typeNames > 0 then
+                    line = line .. " → " .. table.concat(typeNames, "/")
+                end
+                table.insert(parts, line)
             end
         end
         local bindingString = table.concat(parts, ", ")
@@ -1080,6 +1118,20 @@ local function DelayedRefreshLayout()
     end)
 end
 
+-- 天赋/专精事件的防抖再识别：TRAIT_CONFIG_UPDATED / PLAYER_TALENT_UPDATE
+-- 会连发多次，且事件触发瞬间 IsPlayerSpell 可能尚未反映新配置——立即重判
+-- 会读到旧状态 → 绑定串与 lastBindingString 相同 → 静默（打印只在绑定
+-- 列表变化时发，属防刷屏设计），容器 includeDispelTypes 也停在旧类型上。
+-- 用 NewTimer 从最后一个事件起算延迟 0.3s，合并连发后等配置落地再判定。
+local talentRediscoverTimer
+local function DelayedRediscover()
+    if talentRediscoverTimer then talentRediscoverTimer:Cancel() end
+    talentRediscoverTimer = C_Timer.NewTimer(0.3, function()
+        talentRediscoverTimer = nil
+        RefreshAll(true)
+    end)
+end
+
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == "ClickCleanse" then
         -- SavedVariables 就绪，立即套用默认值兜底。
@@ -1126,7 +1178,8 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         or event == "TRAIT_CONFIG_UPDATED"
         or event == "PLAYER_TALENT_UPDATE" then
         -- 专精/天赋变化可能让职业获得或失去驱散能力，必须重新判定。
-        RefreshAll(true)
+        -- 走防抖：等配置真正落地后再 DiscoverDispels（见 DelayedRediscover）。
+        DelayedRediscover()
     elseif event == "GROUP_ROSTER_UPDATE"
         or event == "GROUP_LEFT"
         or event == "COMPACT_UNIT_FRAME_PROFILES_LOADED"
