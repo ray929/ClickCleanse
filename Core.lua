@@ -703,6 +703,13 @@ local function GetHealthBar(frame)
     local name = frame.GetName and frame:GetName() or ""
     local hb = frame.healthBar or frame.HealthBar
     if hb and hb.GetHeight then return hb end
+    -- 默认（非 raid 式）队伍框：PartyMemberFrameTemplate 的血条在
+    -- HealthBarContainer.HealthBar，且成员框是 CreateFramePool 创建的匿名帧
+    -- （子帧没有名字），既取不到 frame.healthBar 也扫不到 "Health" 子帧。
+    local hbc = frame.HealthBarContainer
+    if hbc and hbc.HealthBar and hbc.HealthBar.GetHeight then
+        return hbc.HealthBar
+    end
     for _, child in ipairs({frame:GetChildren()}) do
         local n = child.GetName and child:GetName() or ""
         if (n:find("Health") or n:find("health")) and child.GetHeight then
@@ -778,6 +785,17 @@ local function FindBlizzardPartyFrame(unit)
                 if FrameMatchesUnit(child, unit) then
                     return child
                 end
+            end
+        end
+    end
+    -- 默认（非 raid 式）队伍框：PartyFrame["MemberFrame1".."MemberFrame4"]。
+    -- 只覆盖队友（团队由 ShouldShow() 直接关闭，不在这里处理 raid 单位）。
+    local pf = _G.PartyFrame
+    if pf then
+        for i = 1, 4 do
+            local child = pf["MemberFrame"..i]
+            if child and FrameMatchesUnit(child, unit) then
+                return child
             end
         end
     end
@@ -1018,17 +1036,21 @@ local function RefreshLayout(isBootstrap)
                 -- 绝不能 SetParent 进 ERF/暴雪的 secure header：外来子框架会
                 -- 污染 SecureGroupHeader_Update 的安全路径，战斗中触发
                 -- ADDON_ACTION_BLOCKED（ERF "StatusBar:SetHeight()"）。
-                -- 点击由"同 strata + frameLevel+50 压顶"保证，与父子无关。
-                if frame.GetFrameStrata then
-                    button:SetFrameStrata(frame:GetFrameStrata())
-                end
+                --
+                -- 层级：单位框本身在 LOW（CompactRaidGroupTemplate / PartyFrame
+                -- 都是 LOW），但 CompactUnitFrame 里有绝对层级的子元素
+                -- （centerStatusIcon=110、readyCheckIcon=120），
+                -- BetterBlizzFrames 还会把光环容器抬到 9999 / FULLSCREEN。
+                -- 照抄目标 strata 再 +50 会被这些图层盖住，点击也被它们吃掉
+                -- （反馈："right 时方块被队伍框挡住、点不到"）。
+                -- 所以固定用 HIGH（低于 DIALOG/FULLSCREEN_DIALOG，不会压菜单）
+                -- 并把 level 抬到目标之上 200。
+                button:SetFrameStrata("HIGH")
                 button:ClearAllPoints()
                 local a = ANCHORS[GetAnchor()]
                 button:SetPoint(a.point, hb, a.relPoint, a.dx, a.dy)
                 if frame.GetFrameLevel then
-                    -- ERF buttons host many layered children (health +2, text +12, auras +13).
-                    -- Push our square well above all of them so it actually receives clicks.
-                    button:SetFrameLevel(frame:GetFrameLevel() + 50)
+                    button:SetFrameLevel(frame:GetFrameLevel() + 200)
                 end
 
                 local size = GetSquareSize()
