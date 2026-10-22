@@ -1037,20 +1037,19 @@ local function RefreshLayout(isBootstrap)
                 -- 污染 SecureGroupHeader_Update 的安全路径，战斗中触发
                 -- ADDON_ACTION_BLOCKED（ERF "StatusBar:SetHeight()"）。
                 --
-                -- 层级：单位框本身在 LOW（CompactRaidGroupTemplate / PartyFrame
-                -- 都是 LOW），但 CompactUnitFrame 里有绝对层级的子元素
-                -- （centerStatusIcon=110、readyCheckIcon=120），
-                -- BetterBlizzFrames 还会把光环容器抬到 9999 / FULLSCREEN。
-                -- 照抄目标 strata 再 +50 会被这些图层盖住，点击也被它们吃掉
-                -- （反馈："right 时方块被队伍框挡住、点不到"）。
-                -- 所以固定用 HIGH（低于 DIALOG/FULLSCREEN_DIALOG，不会压菜单）
-                -- 并把 level 抬到目标之上 200。
-                button:SetFrameStrata("HIGH")
+                -- 层级：单位框整条链都是 LOW（CompactPartyFrame 挂在 PartyFrame
+                -- 之下、CompactRaidGroupTemplate/PartyFrame 都是 LOW，ERF 默认也
+                -- 是 LOW），而 CompactUnitFrame 的子元素走绝对层级
+                -- （centerStatusIcon=110、readyCheckIcon=120）。strata 优先于
+                -- level 比较，所以升到 MEDIUM 就能整体压住这些子元素；再用
+                -- level+50 处理同为 MEDIUM 的情况。不要用 HIGH：HIGH 会盖到
+                -- 小地图等 MEDIUM UI 之上（用户反馈"都覆盖在地图上面了"）。
+                button:SetFrameStrata("MEDIUM")
                 button:ClearAllPoints()
                 local a = ANCHORS[GetAnchor()]
                 button:SetPoint(a.point, hb, a.relPoint, a.dx, a.dy)
                 if frame.GetFrameLevel then
-                    button:SetFrameLevel(frame:GetFrameLevel() + 200)
+                    button:SetFrameLevel(frame:GetFrameLevel() + 50)
                 end
 
                 local size = GetSquareSize()
