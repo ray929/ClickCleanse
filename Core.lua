@@ -28,10 +28,44 @@ end
 -- -----------------------------------------------------------------------------
 local C_Spell = _G.C_Spell
 
-local IsSpellKnownFunc = (C_Spell and C_Spell.IsSpellKnown) or _G.IsSpellKnown
-local GetSpellNameFunc = (C_Spell and C_Spell.GetSpellName) or function(sid)
-    return (GetSpellInfo(sid))
+-- WoW: Forever（内部代号 Camelot，即"永恒"）跑在现代化客户端上：与 12.1 同一套
+-- API 家族与保密光环系统，但职业/法术/等级沿用香草（Vanilla）规则，界面版本号
+-- 为 16001。用版本号判定最稳——早期 beta 的 WOW_PROJECT_ID 报 1（Mainline），
+-- 后续 build 才报 18（WOW_PROJECT_CAMELOT）。
+local IS_FOREVER = false
+do
+    local tocversion = select(4, GetBuildInfo())
+    if tocversion and tocversion >= 16000 and tocversion < 20000 then
+        IS_FOREVER = true
+    elseif _G.WOW_PROJECT_CAMELOT ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_CAMELOT then
+        IS_FOREVER = true
+    end
 end
+
+-- 保密值可读性谓词：12.1/永恒的受限状态下，对 secret 值做比较或布尔测试会抛错。
+local canAccessValue = _G.canaccessvalue or function() return true end
+
+local IsSpellKnownFunc = (C_Spell and C_Spell.IsSpellKnown) or _G.IsSpellKnown
+
+-- 法术名解析：永恒移除了全局 GetSpellInfo，按 C_Spell.GetSpellName →
+-- C_Spell.GetSpellInfo（返回表）→ 全局 GetSpellInfo 逐级回退。
+local function GetSpellNameFunc(spellID)
+    if not spellID then return nil end
+    if C_Spell and C_Spell.GetSpellName then
+        local name = C_Spell.GetSpellName(spellID)
+        if name then return name end
+    end
+    if C_Spell and C_Spell.GetSpellInfo then
+        local info = C_Spell.GetSpellInfo(spellID)
+        if info and info.name then return info.name end
+    end
+    if _G.GetSpellInfo then
+        local name = (_G.GetSpellInfo(spellID))
+        if name then return name end
+    end
+    return nil
+end
+
 local GetSpellCooldownFunc = (C_Spell and C_Spell.GetSpellCooldown)
 
 local function tContains(tbl, value)
@@ -106,6 +140,40 @@ local DISPEL_SPELLS = {
         -- 绑定用 132411 的名字（zhCN"烧灼驱魔"），能否实际施放由游戏
         -- 运行时判断，宏失败无害。
         {spellID = 132411, types = {"Magic"}, prio = 1, warlock = true},
+    },
+}
+
+-- WoW: Forever（香草规则）的驱散技能表。现代技能（净化灵魂/清洁毒素/自然之愈等）
+-- 在永恒里不存在，香草时期的驱散法术按 Decursive 的 Classic 表核对：
+--   * 德鲁伊：解除诅咒 2782（诅咒）、强力驱毒 2893（中毒）
+--   * 法师：解除次级诅咒 475（诅咒）
+--   * 圣骑士：清洁术 4987（魔法/疾病/中毒）
+--   * 牧师：驱散魔法 527（魔法）、强力驱病 552（疾病）
+--   * 萨满：驱病术 2870（疾病）、驱毒术 526（中毒）
+--   * 术士：地狱犬的吞噬魔法 19505（魔法，宠物技能）
+-- 这里有意省略同类型的低级形态（驱毒术 8946、驱病术 528、圣骑士净化术 1152）：
+-- 永恒的驱散能力按职业固定，同一类型绑定两个键纯属冗余。
+local DISPEL_SPELLS_FOREVER = {
+    DRUID = {
+        {spellID = 2782, types = {"Curse"},                prio = 1}, -- Remove Curse
+        {spellID = 2893, types = {"Poison"},               prio = 2}, -- Abolish Poison
+    },
+    MAGE = {
+        {spellID = 475,  types = {"Curse"},                prio = 1}, -- Remove Lesser Curse
+    },
+    PALADIN = {
+        {spellID = 4987, types = {"Magic", "Disease", "Poison"}, prio = 1}, -- Cleanse
+    },
+    PRIEST = {
+        {spellID = 527,  types = {"Magic"},                prio = 1}, -- Dispel Magic
+        {spellID = 552,  types = {"Disease"},              prio = 2}, -- Abolish Disease
+    },
+    SHAMAN = {
+        {spellID = 2870, types = {"Disease"},              prio = 1}, -- Cure Disease
+        {spellID = 526,  types = {"Poison"},               prio = 2}, -- Cure Poison
+    },
+    WARLOCK = {
+        {spellID = 19505, types = {"Magic"},               prio = 1}, -- Devour Magic (Felhunter)
     },
 }
 
@@ -191,6 +259,30 @@ local function SafeHide(frame)
         return
     end
     frame:Hide()
+end
+
+-- 12.1 / 永恒：UnitExists / UnitInParty 这类返回布尔值的 API 在保密上下文里
+-- 可能返回 secret 值，对 secret 做比较或布尔测试会直接抛错。读取失败时按
+-- "存在/在队"处理——方块是否最终显示还取决于能否找到血条框架。
+local function SafeUnitExists(unit)
+    local ok, exists = pcall(function() return UnitExists(unit) == true end)
+    if not ok then return true end
+    return exists == true
+end
+
+local function SafeUnitInParty(unit)
+    local ok, inParty = pcall(function() return UnitInParty(unit) == true end)
+    if not ok then return true end
+    return inParty == true
+end
+
+-- 12.1 / 永恒：单位姓名可能是 secret 字符串（拼接/打印都会抛错）。读不到就
+-- 不显示姓名行，工具提示的其余内容照常。
+local function SafeUnitName(unit)
+    local ok, name = pcall(UnitName, unit)
+    if not ok or type(name) ~= "string" then return nil end
+    if not canAccessValue(name) then return nil end
+    return name
 end
 local lastBindingString = ""
 local dispelConfigVersion = 0
@@ -477,41 +569,72 @@ local function ColoredTypeName(typeName)
     return name
 end
 
+-- 永恒术士：吞噬魔法是宠物技能，只存在于地狱犬的宠物动作条上。按动作条
+-- 里的技能名（本地化，与 spellID 解析出的名字同源）判断当前宠物有没有；
+-- 读不到宠物动作条信息时按"有"处理（宽松，宏里的 pet: 条件仍会兜底）。
+local function PetHasSpellNamed(spellName)
+    if type(_G.GetPetActionInfo) ~= "function" or not spellName then return true end
+    local slots = _G.NUM_PET_ACTION_SLOTS or 10
+    for i = 1, slots do
+        local ok, match = pcall(function()
+            local name = (_G.GetPetActionInfo(i))
+            return name == spellName
+        end)
+        if ok and match then return true end
+    end
+    return false
+end
+
 local function DiscoverDispels()
     wipe(dispels)
-    local _, class = UnitClass("player")
+    local okClass, class = pcall(function() return select(2, UnitClass("player")) end)
+    if not okClass or type(class) ~= "string" then return dispels end
     class = string.upper(class)
-    local list = DISPEL_SPELLS[class]
+    -- 永恒（香草规则）有自己的技能表：现代驱散技能在那边不存在。
+    local list = (IS_FOREVER and DISPEL_SPELLS_FOREVER[class]) or DISPEL_SPELLS[class]
 
-    DebugPrint(string.format("DiscoverDispels | class=%s list=%s",
-        class or "?", tostring(list ~= nil)))
+    DebugPrint(string.format("DiscoverDispels | class=%s forever=%s list=%s",
+        class or "?", tostring(IS_FOREVER), tostring(list ~= nil)))
 
     if not list then return dispels end
 
     for _, entry in ipairs(list) do
         local spellID = entry.spellID
-        local name = (spellID and GetSpellNameFunc(spellID)) or "?"
-        DebugPrint(string.format("  spell=%s id=%s warlock=%s",
-            name, tostring(spellID), tostring(entry.warlock or false)))
+        local name = GetSpellNameFunc(spellID)
+        DebugPrint(string.format("  spell=%s id=%s always=%s",
+            name or "?", tostring(spellID), tostring(IS_FOREVER or entry.warlock or false)))
 
         local active
-        if entry.warlock then
-            -- 术士宽松绑定（用户明确要求）：不做 known/天赋/override 检测，
-            -- 职业为术士即默认能用烧灼驱魔驱散魔法。能否实际施放由游戏
-            -- 运行时判断，宏失败无害。
+        if IS_FOREVER or entry.warlock then
+            -- 永恒：驱散是各职业固定的训练技能，没有专精/天赋门控，按职业直接
+            -- 启用（等级不足尚未学习的情况极少，宏失败无害）。
+            -- 零售术士同样宽松（用户明确要求，见上方技能表注释）。
             active = true
         else
             -- pcall 失败时 select(2,...) 拿到的是错误消息字符串（truthy），
             -- 必须与 true 精确比较，否则"调用报错"会被误判成"已学"。
-            active = IsSpellKnownFunc(spellID) or IsPlayerSpell(spellID)
+            active = (IsSpellKnownFunc and IsSpellKnownFunc(spellID))
+                or (_G.IsPlayerSpell and IsPlayerSpell(spellID))
                 or (IsSpellKnownOrOverridesKnown and (
                     select(2, pcall(IsSpellKnownOrOverridesKnown, spellID)) == true
                     or select(2, pcall(IsSpellKnownOrOverridesKnown, spellID, true)) == true))
         end
 
+        -- 法术名拿不到（法术数据尚未缓存）时跳过：宏文本依赖技能名。
+        if active and not name then
+            DebugPrint(string.format("  id=%s -> spell name unavailable, skipped", tostring(spellID)))
+            active = false
+        end
+
+        -- 永恒的术士吞噬魔法是地狱犬的宠物技能：宠物不在场（或换了宠物）
+        -- 时这个方块没有意义，按宠物动作条内容再确认一次。
+        if active and IS_FOREVER and spellID == 19505 then
+            active = PetHasSpellNamed(name)
+        end
+
         if active then
             local types = {unpack(entry.types)}
-            if entry.talent and IsPlayerSpell(entry.talent) then
+            if entry.talent and _G.IsPlayerSpell and IsPlayerSpell(entry.talent) then
                 for _, t in ipairs(entry.extraTypes) do
                     if not tContains(types, t) then table.insert(types, t) end
                 end
@@ -631,10 +754,11 @@ local function CreateSquareButton(unit)
     button:SetScript("OnEnter", function(self)
         GameTooltip_SetDefaultAnchor(GameTooltip, self)
         -- 首行：角色姓名，按职业染色（姓名/职业不属保密光环数据）。
-        local name = UnitName(unit)
+        local name = SafeUnitName(unit)
         if name then
-            local classFile = select(2, UnitClass(unit))
-            local cc = classFile and RAID_CLASS_COLORS[classFile]
+            local okClass, classFile = pcall(function() return select(2, UnitClass(unit)) end)
+            local cc = (okClass and type(classFile) == "string")
+                and RAID_CLASS_COLORS[classFile] or nil
             if cc then
                 GameTooltip:AddLine(name, cc.r, cc.g, cc.b)
             else
@@ -687,6 +811,11 @@ local function SetButtonMacros(button, unit)
                 text = string.format(
                     "/cast [pet:imp/小鬼, @%s] %s; [nopet:imp/小鬼, @%s] %s",
                     unit, d.name, unit, grimoire)
+            elseif d.spellID == 19505 then
+                -- 永恒（香草规则）术士：吞噬魔法是地狱犬的宠物技能，只有
+                -- 地狱犬在场才能施放。pet: 条件是本地化的宠物类型名
+                -- （enUS=felhunter / zhCN=地狱犬），条件不满足时宏静默不施放。
+                text = string.format("/cast [pet:felhunter/地狱犬, @%s] %s", unit, d.name)
             else
                 text = string.format("/cast [@%s] %s", unit, d.name)
             end
@@ -915,9 +1044,11 @@ local function FindUnitFrame(unit)
     end
 
     -- 3. Generic global search through visible unit frames.
+    -- EnumerateFrames 在永恒等非标准客户端上可能不存在：此时跳过全局枚举，
+    -- 退回前两步（ERF/暴雪队伍框）与 player 的 PlayerFrame 兜底。
     local best
     local count = 0
-    local f = EnumerateFrames()
+    local f = _G.EnumerateFrames and _G.EnumerateFrames()
     while f and count < MAX_ENUMERATE_FRAMES do
         count = count + 1
         if SafeIsVisible(f) and FrameMatchesUnit(f, unit) then
@@ -1017,8 +1148,8 @@ local function RefreshLayout(isBootstrap)
     for _, unit in ipairs(units) do
         local button = GetButton(unit)
         local frame = FindUnitFrame(unit)
-        local exists = UnitExists(unit)
-        local inParty = (unit == "player") or UnitInParty(unit)
+        local exists = SafeUnitExists(unit)
+        local inParty = (unit == "player") or SafeUnitInParty(unit)
         local hasFrame = frame and SafeIsVisible(frame)
         local show = ShouldShow() and (hasFrame or (exists and inParty))
 
@@ -1116,18 +1247,25 @@ end
 -- -----------------------------------------------------------------------------
 -- Events / ticker
 -- -----------------------------------------------------------------------------
+-- 事件注册走 pcall：永恒虽然沿用现代客户端的事件体系，但个别事件（如天赋树
+-- 相关）在特定 build 上可能不存在，直接 RegisterEvent 会抛错中断整个文件加载。
 local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("ADDON_LOADED")
-eventFrame:RegisterEvent("PLAYER_LOGIN")
-eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
-eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
-eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
-eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-eventFrame:RegisterEvent("GROUP_LEFT")
-eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-eventFrame:RegisterEvent("COMPACT_UNIT_FRAME_PROFILES_LOADED")
-eventFrame:RegisterEvent("DISPLAY_SIZE_CHANGED")
+for _, event in ipairs({
+    "ADDON_LOADED",
+    "PLAYER_LOGIN",
+    "PLAYER_SPECIALIZATION_CHANGED",
+    "ACTIVE_TALENT_GROUP_CHANGED",
+    "TRAIT_CONFIG_UPDATED",
+    "PLAYER_TALENT_UPDATE",
+    "GROUP_ROSTER_UPDATE",
+    "GROUP_LEFT",
+    "PLAYER_REGEN_ENABLED",
+    "COMPACT_UNIT_FRAME_PROFILES_LOADED",
+    "DISPLAY_SIZE_CHANGED",
+    "UNIT_PET",
+}) do
+    pcall(eventFrame.RegisterEvent, eventFrame, event)
+end
 
 local function DelayedRefreshLayout()
     C_Timer.After(0.5, function()
@@ -1177,7 +1315,8 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
                 local erfLoaded = (_G.ERFPartyHeader ~= nil) or (_G.ERFPartySelfButton ~= nil)
                 local allFound = true
                 for _, unit in ipairs(units) do
-                    local shouldShow = ShouldShow() and UnitExists(unit) and (unit == "player" or UnitInParty(unit))
+                    local shouldShow = ShouldShow() and SafeUnitExists(unit)
+                        and (unit == "player" or SafeUnitInParty(unit))
                     if shouldShow then
                         local cached = frameCache[unit]
                         if not cached or (erfLoaded and not IsERFFrame(cached)) then
@@ -1207,6 +1346,10 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         or event == "DISPLAY_SIZE_CHANGED" then
         if not addonEnabled then return end
         DelayedRefreshLayout()
+    elseif event == "UNIT_PET" then
+        -- 仅永恒需要：术士的吞噬魔法取决于当前宠物（地狱犬）是否在场，
+        -- 换宠物/召唤后重新判定。零售术士是宽松绑定，不关心宠物变化。
+        if IS_FOREVER then DelayedRediscover() end
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- 战斗结束后补上战斗中被推迟的布局与过滤器更新。
         -- 统一重跑 RefreshAll：有驱散则刷新布局，无驱散则隐藏全部方块。
@@ -1241,7 +1384,6 @@ end
 --   * 读不到（pcall 失败，或 canaccessvalue 判定不可读）一律按"有 debuff"处理
 --     ——宁可多显示 CD 也不误清。否则真 CD 会在战斗/副本里被误判成"无 debuff"
 --     而整段吞掉，正是本插件最需要 CD 的场景反而没有 CD。
-local canAccessValue = _G.canaccessvalue or function() return true end
 
 local function HasActiveDebuff()
     for _, button in pairs(buttons) do

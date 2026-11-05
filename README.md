@@ -29,6 +29,7 @@ A clickable square beside each party member's health bar: when a dispellable deb
 
 - Specially adapted for Ellesmere Raid Frames (ERF) and the default Blizzard party frames; other standard unit frames (e.g. ElvUI) are usually auto-detected too.
 - Works in parties (including solo) only; automatically hidden in raids.
+- Also supports **World of Warcraft: Forever** (interface 16001): its Vanilla ruleset uses its own dispel spell list (e.g. Cleanse, Cure Poison, Dispel Magic, Felhunter's Devour Magic).
 
 ## Credits
 
@@ -78,6 +79,7 @@ This addon was made for the author's personal convenience; features follow perso
 
 - 对 Ellesmere Raid Frames (ERF) 与暴雪原生小队框架做了专门适配；其他标准单位框架（如 ElvUI）通常也能自动识别。
 - 仅在小队（含单人）中工作，团队中自动隐藏。
+- 同时支持**魔兽世界：永恒（WoW Forever）**（界面版本 16001）：其香草规则使用独立的驱散技能表（清洁术、驱毒术、驱散魔法、地狱犬的吞噬魔法等）。
 
 ## 致谢
 
