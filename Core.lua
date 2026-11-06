@@ -34,8 +34,12 @@ local C_Spell = _G.C_Spell
 -- 后续 build 才报 18（WOW_PROJECT_CAMELOT）。
 local IS_FOREVER = false
 do
-    local tocversion = select(4, GetBuildInfo())
-    if tocversion and tocversion >= 16000 and tocversion < 20000 then
+    local ok, version, _, _, tocversion = pcall(GetBuildInfo)
+    -- 1.60.x（=_forever_ 的 1.60.1.70790）同样按永恒处理：部分 build 的
+    -- TOC 版本号不一定报 16001，版本串是更直接的信号。
+    if ok and type(version) == "string" and version:find("^1%.60") then
+        IS_FOREVER = true
+    elseif ok and tocversion and tocversion >= 16000 and tocversion < 20000 then
         IS_FOREVER = true
     elseif _G.WOW_PROJECT_CAMELOT ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_CAMELOT then
         IS_FOREVER = true
@@ -148,11 +152,12 @@ local DISPEL_SPELLS = {
 --   * 德鲁伊：解除诅咒 2782（诅咒）、强力驱毒 2893（中毒）
 --   * 法师：解除次级诅咒 475（诅咒）
 --   * 圣骑士：清洁术 4987（魔法/疾病/中毒）
---   * 牧师：驱散魔法 527（魔法）、强力驱病 552（疾病）
+--   * 牧师：驱散魔法 527（魔法）、祛病术 528（疾病）
 --   * 萨满：驱病术 2870（疾病）、驱毒术 526（中毒）
 --   * 术士：地狱犬的吞噬魔法 19505（魔法，宠物技能）
--- 这里有意省略同类型的低级形态（驱毒术 8946、驱病术 528、圣骑士净化术 1152）：
--- 永恒的驱散能力按职业固定，同一类型绑定两个键纯属冗余。
+-- 这里有意省略同类型的其它形态（驱毒术 8946、废除疾病 552、圣骑士净化术 1152）：
+-- 永恒的驱散能力按职业固定，同一类型绑定两个键纯属冗余（552 是 528 的升级版，
+-- 两条都收会占两个鼠标键，故只收 528）。
 local DISPEL_SPELLS_FOREVER = {
     DRUID = {
         {spellID = 2782, types = {"Curse"},                prio = 1}, -- Remove Curse
@@ -166,7 +171,9 @@ local DISPEL_SPELLS_FOREVER = {
     },
     PRIEST = {
         {spellID = 527,  types = {"Magic"},                prio = 1}, -- Dispel Magic
-        {spellID = 552,  types = {"Disease"},              prio = 2}, -- Abolish Disease
+        -- 永恒的 zhCN 客户端里"祛病术"是 528（Cure Disease）；552（Abolish
+        -- Disease）是更晚学到的升级版，同类型再绑一个键属冗余，故只收 528。
+        {spellID = 528,  types = {"Disease"},              prio = 2}, -- Cure Disease
     },
     SHAMAN = {
         {spellID = 2870, types = {"Disease"},              prio = 1}, -- Cure Disease
@@ -186,7 +193,8 @@ local BUTTON_LABELS = {
 
 local DEFAULT_SIZE = 30
 
--- 方块相对血条的停靠位置；默认沿用旧行为（血条左侧）。
+-- 方块相对队员血条的停靠位置；拿不到血条的方块（战斗中途加入/框未就绪）
+-- 先停到队伍框旁的预留列，脱战刷新时自动吸附回来。
 local ANCHORS = {
     left   = { point = "RIGHT",  relPoint = "LEFT",   dx = -5, dy = 0 },
     right  = { point = "LEFT",   relPoint = "RIGHT",  dx = 5,  dy = 0 },
@@ -242,38 +250,18 @@ local addonEnabled = false
 local lastRefreshTime = 0
 local REFRESH_THROTTLE = 0.5
 
--- 受保护框架（SecureActionButton 带 macrotext）的 Show/Hide 在战斗中会
--- ADDON_ACTION_BLOCKED。所有按钮级 Show/Hide 都走这两个包装函数；若当前
--- 处于战斗则只挂起 pendingUpdate，脱战后由 PLAYER_REGEN_ENABLED 重跑。
-local function SafeShow(frame)
-    if InCombatLockdown() then
-        pendingUpdate = true
-        return
-    end
-    frame:Show()
-end
+-- 受保护框架（SecureActionButton 带 macrotext）的 Show/Hide 在战斗中会被
+-- 禁止（ADDON_ACTION_BLOCKED），所以方块显隐交给安全状态驱动
+-- （RegisterStateDriver，见下方 RegisterVisibilityDriver）：战斗中的
+-- 队友加入/退出由引擎按"单位是否存在"自行显隐，Lua 不再插手。
 
-local function SafeHide(frame)
-    if InCombatLockdown() then
-        pendingUpdate = true
-        return
-    end
-    frame:Hide()
-end
-
--- 12.1 / 永恒：UnitExists / UnitInParty 这类返回布尔值的 API 在保密上下文里
--- 可能返回 secret 值，对 secret 做比较或布尔测试会直接抛错。读取失败时按
--- "存在/在队"处理——方块是否最终显示还取决于能否找到血条框架。
+-- 12.1 / 永恒：UnitExists 这类返回布尔值的 API 在保密上下文里可能返回
+-- secret 值，对 secret 做比较或布尔测试会直接抛错。读取失败时按"存在"
+-- 处理——读取失败不会误隐藏方块。
 local function SafeUnitExists(unit)
     local ok, exists = pcall(function() return UnitExists(unit) == true end)
     if not ok then return true end
     return exists == true
-end
-
-local function SafeUnitInParty(unit)
-    local ok, inParty = pcall(function() return UnitInParty(unit) == true end)
-    if not ok then return true end
-    return inParty == true
 end
 
 -- 12.1 / 永恒：单位姓名可能是 secret 字符串（拼接/打印都会抛错）。读不到就
@@ -471,9 +459,12 @@ local function AttachManagedAura(button, unit)
     button.auraConfigVersion = dispelConfigVersion
     container:SetAllPoints(button)
     if container.EnableMouse then pcall(container.EnableMouse, container, false) end
+    button.auraUnit = nil
     if container.SetUnit then
         local okUnit = pcall(container.SetUnit, container, unit)
-        if not okUnit then
+        if okUnit then
+            button.auraUnit = unit
+        else
             DebugPrint(string.format("%s -> AuraContainer SetUnit failed", unit))
         end
     end
@@ -585,6 +576,48 @@ local function PetHasSpellNamed(spellName)
     return false
 end
 
+-- 技能是否已学：返回 true / false；所有"已学"API 都不可用或全部读取报错
+-- （保密值）时返回 nil，由调用方决定是否宽松启用。
+local function IsSpellLearned(spellID)
+    local anyApi, answered = false, false
+
+    -- 每个 API 都走 pcall；只有"无报错地"返回过布尔值才算有结论，
+    -- 避免某个 API 在未知 ID 上报错就把整体误判成"读不到"。
+    local function check(ok, value)
+        anyApi = true
+        if not ok then return false end
+        answered = true
+        return value == true
+    end
+
+    local C_SpellBook = _G.C_SpellBook
+    if IsSpellKnownFunc and check(pcall(IsSpellKnownFunc, spellID)) then
+        return true
+    end
+    if C_SpellBook and C_SpellBook.IsSpellKnown
+        and check(pcall(C_SpellBook.IsSpellKnown, spellID)) then
+        return true
+    end
+    -- 永恒等非标准 build 上，法术书查询是更可靠的"已学"来源（EllesmereUI
+    -- 的 EUI_UnitFrames_Lifecycle 同款用法）。
+    if C_SpellBook and C_SpellBook.IsSpellInSpellBook and _G.Enum
+        and _G.Enum.SpellBookSpellBank
+        and check(pcall(C_SpellBook.IsSpellInSpellBook, spellID,
+            _G.Enum.SpellBookSpellBank.Player, true)) then
+        return true
+    end
+    if _G.IsPlayerSpell and check(pcall(_G.IsPlayerSpell, spellID)) then
+        return true
+    end
+    if _G.IsSpellKnownOrOverridesKnown then
+        if check(pcall(_G.IsSpellKnownOrOverridesKnown, spellID)) then return true end
+        if check(pcall(_G.IsSpellKnownOrOverridesKnown, spellID, true)) then return true end
+    end
+
+    if not anyApi or not answered then return nil end
+    return false
+end
+
 local function DiscoverDispels()
     wipe(dispels)
     local okClass, class = pcall(function() return select(2, UnitClass("player")) end)
@@ -601,23 +634,23 @@ local function DiscoverDispels()
     for _, entry in ipairs(list) do
         local spellID = entry.spellID
         local name = GetSpellNameFunc(spellID)
-        DebugPrint(string.format("  spell=%s id=%s always=%s",
-            name or "?", tostring(spellID), tostring(IS_FOREVER or entry.warlock or false)))
+        local learned = IsSpellLearned(spellID)
+        DebugPrint(string.format("  spell=%s id=%s learned=%s",
+            name or "?", tostring(spellID), tostring(learned)))
 
         local active
-        if IS_FOREVER or entry.warlock then
-            -- 永恒：驱散是各职业固定的训练技能，没有专精/天赋门控，按职业直接
-            -- 启用（等级不足尚未学习的情况极少，宏失败无害）。
-            -- 零售术士同样宽松（用户明确要求，见上方技能表注释）。
+        if entry.warlock then
+            -- 零售术士宽松绑定（用户明确要求，见上方技能表注释）。
             active = true
+        elseif IS_FOREVER then
+            -- 永恒：香草驱散没有专精/天赋门控，但有等级门槛。旧版无条件启用
+            -- 会把"还没学"的技能也绑到鼠标键上，点击宏静默失败（2026-11-05
+            -- 牧师 lv12 实测：学会了祛病术 528，但左/右键绑的是未学的 527/552）。
+            -- 改为按已学判定；只有所有已学 API 都读不到时才退回宽松启用。
+            active = (learned == nil) or learned
         else
-            -- pcall 失败时 select(2,...) 拿到的是错误消息字符串（truthy），
-            -- 必须与 true 精确比较，否则"调用报错"会被误判成"已学"。
-            active = (IsSpellKnownFunc and IsSpellKnownFunc(spellID))
-                or (_G.IsPlayerSpell and IsPlayerSpell(spellID))
-                or (IsSpellKnownOrOverridesKnown and (
-                    select(2, pcall(IsSpellKnownOrOverridesKnown, spellID)) == true
-                    or select(2, pcall(IsSpellKnownOrOverridesKnown, spellID, true)) == true))
+            -- 零售：按已学判定（IsSpellLearned 已做 pcall + 保密值保护）。
+            active = (learned == true)
         end
 
         -- 法术名拿不到（法术数据尚未缓存）时跳过：宏文本依赖技能名。
@@ -711,6 +744,13 @@ local function CreateSquareButton(unit)
     button:EnableMouse(true)
     button:RegisterForClicks("AnyDown", "AnyUp")
     button:Hide()
+    -- 每个方块永久绑定一个 unit token（player/party1..4），预建一次后不再
+    -- 换绑：战斗中队友加入/退出只靠安全状态驱动显隐。
+    button.unitToken = unit
+    -- 固定列不再压在各队员框上，MEDIUM + 固定层级即可（不要 HIGH：会盖住
+    -- 小地图等 MEDIUM UI）。层级在创建时定好，战斗中不再改动。
+    button:SetFrameStrata("MEDIUM")
+    button:SetFrameLevel(100)
 
     -- Attach the Blizzard-managed aura overlay BEFORE the cooldown frame so
     -- the cooldown swipe and countdown render above the managed fill.
@@ -931,14 +971,6 @@ local function FindBlizzardPartyFrame(unit)
     return nil
 end
 
--- 是否为 Ellesmere Raid Frames 的帧（名字含 ERF）。
--- bootstrap 用它确保 ERF 已加载时方块锚到 ERF 帧而非全局枚举的回退帧。
-local function IsERFFrame(frame)
-    if not frame then return false end
-    local name = (frame.GetName and frame:GetName()) or ""
-    return name:find("ERF") ~= nil
-end
-
 local function FindERFFrames()
     local ordered = {}
 
@@ -1085,14 +1117,9 @@ end
 -- -----------------------------------------------------------------------------
 -- Affliction detection/coloring is fully owned by the Blizzard-managed aura
 -- overlay; addon Lua only paints the clean (class-colored) state.
-local function UpdateButtonVisual(button, unit)
-    if not button or not button:IsShown() then
-        if IsDebugEnabled() then
-            DebugPrint(string.format("UpdateButtonVisual | unit=%s skipped (not shown)", unit))
-        end
-        return
-    end
-
+-- 固定列模式下方块可能被状态驱动隐藏（对应单位不存在），此处不判断
+-- 可见性，直接设色即可（只改贴图，不涉及受保护操作）。
+local function UpdateButtonVisual(button)
     -- 中央底色一律白色 alpha=0.2（无 debuff 时低调的白印记；有 debuff 时
     -- 中央也主要显示下方的类型色填充，白色仅微微透出提亮）。
     button.classTex:SetColorTexture(1, 1, 1, 0.2)
@@ -1106,6 +1133,106 @@ local function ShouldShow()
     -- 单人和小队都启用，仅在团队中禁用。
     if IsInRaid() then return false end
     return true
+end
+
+-- 方块列的锚点：优选队伍框容器（尺寸覆盖全部队员槽位），单人时退回玩家框。
+-- 队伍框在战斗中会重排/移动，但容器本身位置稳定，固定列因此不会跟着重排。
+local function FindColumnAnchorFrame()
+    if IsInGroup() then
+        local candidates = {}
+        local hdr = _G.ERFPartyHeader
+        if hdr and hdr.GetParent then
+            candidates[#candidates + 1] = hdr:GetParent()
+        end
+        candidates[#candidates + 1] = _G.CompactPartyFrame
+        candidates[#candidates + 1] = _G.PartyFrame
+        -- 先用"正在显示"的容器（不同队伍框方案下只有一个真正可见）。
+        for _, f in ipairs(candidates) do
+            if f and SafeIsVisible(f) then return f end
+        end
+        for _, f in ipairs(candidates) do
+            if f then return f end
+        end
+    end
+    local playerFrame = FindUnitFrame("player")
+    if playerFrame then return playerFrame end
+    return _G.PlayerFrame or UIParent
+end
+
+-- 安全状态驱动：由引擎按"单位是否存在"显隐方块（战斗中同样有效），
+-- 所以队友加入/退出时无需 Lua 再调 Show/Hide/SetPoint——那些在战斗锁定
+-- 下对受保护按钮是被禁止的。团队中由 [group:raid] 整体隐藏。
+local VISIBILITY_DRIVER = "[group:raid] hide; [@%s,exists] show; hide"
+
+local function RegisterVisibilityDriver(button)
+    if button.visibilityDriver then return end
+    local unit = button.unitToken
+    if not unit then return end
+    if not _G.RegisterStateDriver then
+        -- 理论上现代客户端都有；缺失时退回脱战显隐（战斗中无法变更）。
+        button:SetShown(SafeUnitExists(unit) and not IsInRaid())
+        return
+    end
+    local ok = pcall(_G.RegisterStateDriver, button, "visibility",
+        string.format(VISIBILITY_DRIVER, unit))
+    if not ok then
+        DebugPrint(string.format("%s -> RegisterStateDriver failed", unit))
+        return
+    end
+    button.visibilityDriver = true
+    -- 注册后先同步一次显示状态；之后由驱动接管（含战斗中的单位出现/消失）。
+    if IsInRaid() then
+        button:Hide()
+    else
+        button:SetShown(SafeUnitExists(unit))
+    end
+end
+
+local function UnregisterVisibilityDriver(button)
+    if not button.visibilityDriver then return end
+    button.visibilityDriver = false
+    if _G.UnregisterStateDriver then
+        pcall(_G.UnregisterStateDriver, button, "visibility")
+    end
+end
+
+-- 预留列：给"暂时没有血条可挂"的方块一个固定落点（战斗中途加入的新队友
+-- 就能在这里立刻看到并点击），脱战刷新时再吸附到对应队员框。整列/整行
+-- 相对锚点容器居中，避免贴边不齐。
+local COLUMN_GAP = 4
+
+local function ParkButtons(anchorFrame)
+    local size = GetSquareSize()
+    local step = size + COLUMN_GAP
+    local mode = GetAnchor()
+    local count = #units
+    local total = count * size + (count - 1) * COLUMN_GAP
+    local w, h = anchorFrame:GetWidth() or 0, anchorFrame:GetHeight() or 0
+    if anchorFrame == UIParent then w, h = 0, 0 end
+    local parked = 0
+    for _, unit in ipairs(units) do
+        local button = buttons[unit]
+        if button and button.parked then
+            parked = parked + 1
+            local shift = (parked - 1) * step
+            button:ClearAllPoints()
+            button:SetFrameStrata("MEDIUM")
+            button:SetFrameLevel(100)
+            if mode == "left" then
+                button:SetPoint("CENTER", anchorFrame, "CENTER",
+                    -(w / 2 + 5 + size / 2), (total - size) / 2 - shift)
+            elseif mode == "right" then
+                button:SetPoint("CENTER", anchorFrame, "CENTER",
+                    w / 2 + 5 + size / 2, (total - size) / 2 - shift)
+            elseif mode == "top" then
+                button:SetPoint("CENTER", anchorFrame, "CENTER",
+                    -((total - size) / 2) + shift, h / 2 + 5 + size / 2)
+            else
+                button:SetPoint("CENTER", anchorFrame, "CENTER",
+                    -((total - size) / 2) + shift, -h / 2 - 5 - size / 2)
+            end
+        end
+    end
 end
 
 local function RefreshLayout(isBootstrap)
@@ -1130,13 +1257,9 @@ local function RefreshLayout(isBootstrap)
     lastRefreshTime = now
     pendingUpdate = false
 
-    -- 团队中/无驱散技能：直接隐藏全部方块并返回，跳过昂贵的
-    -- FindUnitFrame 全局帧枚举（最多 1500 帧 × 5 单位；团队 roster 事件
-    -- 频繁触发，不跳过的话纯属浪费）。
+    -- 团队中：状态驱动的 [group:raid] hide 已经负责隐藏，这里无需再做任何
+    -- 布局工作（也避免昂贵的帧枚举）。
     if not ShouldShow() then
-        for _, button in pairs(buttons) do
-            SafeHide(button)
-        end
         return
     end
 
@@ -1145,76 +1268,71 @@ local function RefreshLayout(isBootstrap)
             tostring(IsInGroup()), tostring(IsInRaid()), #dispels))
     end
 
+    -- 预建全部 5 个方块，并给每个都挂好托管容器（永久绑定固定 unit token）。
+    -- 这样队友加入的瞬间容器已经在工作，战斗中不再有创建/换绑动作。
+    local size = GetSquareSize()
     for _, unit in ipairs(units) do
         local button = GetButton(unit)
-        local frame = FindUnitFrame(unit)
-        local exists = SafeUnitExists(unit)
-        local inParty = (unit == "player") or SafeUnitInParty(unit)
-        local hasFrame = frame and SafeIsVisible(frame)
-        local show = ShouldShow() and (hasFrame or (exists and inParty))
 
-        local frameName = (frame and frame.GetName and frame:GetName()) or "(nil)"
-        -- Always print per-unit decisions when debugging, so users can see why squares are hidden.
-        if IsDebugEnabled() then
-            DebugPrint(string.format("%s -> frame=%s visible=%s Exists=%s InParty=%s show=%s addonEnabled=%s",
-                unit, frameName, tostring(hasFrame), tostring(exists), tostring(inParty), tostring(show), tostring(addonEnabled)))
+        -- 容器在战斗中创建会失败（首次在战斗中加载插件时）：脱战补挂一次。
+        if not button.auraContainer then
+            AttachManagedAura(button, unit)
+        end
+        if button.auraContainer and button.auraUnit ~= unit and button.auraContainer.SetUnit then
+            local okUnit = pcall(button.auraContainer.SetUnit, button.auraContainer, unit)
+            if okUnit then button.auraUnit = unit end
         end
 
-        if show and frame then
-            local hb = GetHealthBar(frame)
-            if hb then
-                -- 始终保持顶层父子关系（UIParent），只用锚点跟随目标血条。
-                -- 绝不能 SetParent 进 ERF/暴雪的 secure header：外来子框架会
-                -- 污染 SecureGroupHeader_Update 的安全路径，战斗中触发
-                -- ADDON_ACTION_BLOCKED（ERF "StatusBar:SetHeight()"）。
-                --
-                -- 层级：单位框整条链都是 LOW（CompactPartyFrame 挂在 PartyFrame
-                -- 之下、CompactRaidGroupTemplate/PartyFrame 都是 LOW，ERF 默认也
-                -- 是 LOW），而 CompactUnitFrame 的子元素走绝对层级
-                -- （centerStatusIcon=110、readyCheckIcon=120）。strata 优先于
-                -- level 比较，所以升到 MEDIUM 就能整体压住这些子元素；再用
-                -- level+50 处理同为 MEDIUM 的情况。不要用 HIGH：HIGH 会盖到
-                -- 小地图等 MEDIUM UI 之上（用户反馈"都覆盖在地图上面了"）。
-                button:SetFrameStrata("MEDIUM")
-                button:ClearAllPoints()
-                local a = ANCHORS[GetAnchor()]
-                button:SetPoint(a.point, hb, a.relPoint, a.dx, a.dy)
-                if frame.GetFrameLevel then
-                    button:SetFrameLevel(frame:GetFrameLevel() + 50)
-                end
+        -- 尺寸与外观刷新（位置在下方逐人处理）。
+        button:SetSize(size, size)
+        ApplyClassInset(button)
 
-                local size = GetSquareSize()
-                button:SetSize(size, size)
-                ApplyClassInset(button)
+        -- Spec/talent changes may alter which dispel types Blizzard-managed
+        -- detection covers; refresh the container's candidate filters.
+        if button.auraContainer and button.auraConfigVersion ~= dispelConfigVersion then
+            ReconfigureManagedAura(button)
+            button.auraConfigVersion = dispelConfigVersion
+        end
 
-                -- Spec/talent changes may alter which dispel types Blizzard-managed
-                -- detection covers; refresh the container's candidate filters.
-                if button.auraContainer and button.auraConfigVersion ~= dispelConfigVersion then
-                    ReconfigureManagedAura(button)
-                    button.auraConfigVersion = dispelConfigVersion
-                end
+        SetButtonMacros(button, unit)
+        RegisterVisibilityDriver(button)
+        UpdateButtonVisual(button)
 
-                SetButtonMacros(button, unit)
-                SafeShow(button)
-                UpdateButtonVisual(button, unit)
-
-                if IsDebugEnabled() and isBootstrap then
-                    local w, h = button:GetSize()
-                    local lvl = button:GetFrameLevel()
-                    local pName = (button.GetParent and button:GetParent() and button:GetParent().GetName and button:GetParent():GetName()) or "nil"
-                    local macroType = button:GetAttribute("type1") or "nil"
-                    local macroText = button:GetAttribute("macrotext1") or "nil"
-                    local ok, enabled = pcall(button.IsMouseEnabled, button)
-                    DebugPrint(string.format("%s -> square size=%dx%d level=%d parent=%s mouse=%s type1=%s macro=%s managed=%s",
-                        unit, w, h, lvl, pName, tostring(ok and enabled or false), tostring(macroType), tostring(macroText), tostring(button.auraContainer ~= nil)))
-                end
-            else
-                SafeHide(button)
+        -- 优先贴到该队员的血条（脱战才能 SetPoint，战斗中位置保持不动）；
+        -- 拿不到框（战斗中途加入的新队友、队伍框尚未就绪）→ 标记 parked，
+        -- 由 ParkButtons 停到预留列，脱战后的下一次刷新自动吸附回血条。
+        local frame
+        if SafeUnitExists(unit) then
+            frame = FindUnitFrame(unit)
+        end
+        local hb = frame and SafeIsVisible(frame) and GetHealthBar(frame)
+        if hb then
+            -- 绝不能 SetParent 进 ERF/暴雪的 secure header：外来子框架会污染
+            -- SecureGroupHeader_Update 的安全路径，战斗中触发 ADDON_ACTION_BLOCKED。
+            button:SetFrameStrata("MEDIUM")
+            button:ClearAllPoints()
+            local a = ANCHORS[GetAnchor()]
+            button:SetPoint(a.point, hb, a.relPoint, a.dx, a.dy)
+            if frame.GetFrameLevel then
+                button:SetFrameLevel(frame:GetFrameLevel() + 50)
             end
+            button.parked = false
         else
-            SafeHide(button)
+            button.parked = true
+        end
+
+        if IsDebugEnabled() and isBootstrap then
+            local w, h = button:GetSize()
+            local lvl = button:GetFrameLevel()
+            local macroType = button:GetAttribute("type1") or "nil"
+            local macroText = button:GetAttribute("macrotext1") or "nil"
+            local ok, enabled = pcall(button.IsMouseEnabled, button)
+            DebugPrint(string.format("%s -> square size=%dx%d level=%d mouse=%s type1=%s macro=%s managed=%s parked=%s",
+                unit, w, h, lvl, tostring(ok and enabled or false), tostring(macroType), tostring(macroText), tostring(button.auraContainer ~= nil), tostring(button.parked)))
         end
     end
+
+    ParkButtons(FindColumnAnchorFrame())
 end
 
 local function RefreshAll(rediscover, skipLayout)
@@ -1231,9 +1349,11 @@ local function RefreshAll(rediscover, skipLayout)
             pendingUpdate = true
             return
         end
-        -- 当前职业/专精没有驱散技能：完全禁用，隐藏所有方块。
+        -- 当前职业/专精没有驱散技能：完全禁用，注销状态驱动并隐藏所有方块
+        --（否则 player 方块会被驱动重新显示）。
         for _, button in pairs(buttons) do
-            SafeHide(button)
+            UnregisterVisibilityDriver(button)
+            button:Hide()
         end
         return
     end
@@ -1263,6 +1383,8 @@ for _, event in ipairs({
     "COMPACT_UNIT_FRAME_PROFILES_LOADED",
     "DISPLAY_SIZE_CHANGED",
     "UNIT_PET",
+    "SPELLS_CHANGED",
+    "LEARNED_SPELL_IN_SKILL_LINE",
 }) do
     pcall(eventFrame.RegisterEvent, eventFrame, event)
 end
@@ -1307,25 +1429,20 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
                 attempts = attempts + 1
                 if attempts > maxAttempts or not addonEnabled then return end
                 RefreshLayout(true)
-                -- Keep retrying until every unit that should show has a cached frame.
-                -- ERF 已加载时还要求缓存帧来自 ERF：reload 初期 ERF 队伍框架
-                -- 异步初始化未完成，FindUnitFrame 的全局枚举回退会把 player
-                -- 锚到远处的 EllesmereUIUnitFrames_Player/暴雪 PlayerFrame
-                --（表现为方块离 ERF 队伍框架很远），必须继续重试等 ERF 就绪。
-                local erfLoaded = (_G.ERFPartyHeader ~= nil) or (_G.ERFPartySelfButton ~= nil)
-                local allFound = true
-                for _, unit in ipairs(units) do
-                    local shouldShow = ShouldShow() and SafeUnitExists(unit)
-                        and (unit == "player" or SafeUnitInParty(unit))
-                    if shouldShow then
-                        local cached = frameCache[unit]
-                        if not cached or (erfLoaded and not IsERFFrame(cached)) then
-                            allFound = false
-                            break
-                        end
-                    end
+                -- 固定列只需要一个稳定的锚点容器：ERF 装着时等它自己的队伍框
+                -- 容器真正显示出来再定案（否则会先锚到暴雪隐藏的旧队伍框），
+                -- 没装 ERF 时锚点存在即可。
+                local anchor = FindColumnAnchorFrame()
+                local hdr = _G.ERFPartyHeader
+                local ready
+                if anchor == UIParent then
+                    ready = false
+                elseif hdr and hdr.GetParent and IsInGroup() then
+                    ready = (anchor == hdr:GetParent()) and SafeIsVisible(anchor)
+                else
+                    ready = true
                 end
-                if not allFound then
+                if not ready then
                     C_Timer.After(0.5, bootstrapLayout)
                 elseif IsDebugEnabled() then
                     DebugPrint("bootstrap finished at attempt " .. attempts)
@@ -1350,6 +1467,10 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         -- 仅永恒需要：术士的吞噬魔法取决于当前宠物（地狱犬）是否在场，
         -- 换宠物/召唤后重新判定。零售术士是宽松绑定，不关心宠物变化。
         if IS_FOREVER then DelayedRediscover() end
+    elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_SKILL_LINE" then
+        -- 新学/遗忘法术（例如训练师学会祛病术 528）后必须重新判定可用
+        -- 驱散技能，否则旧绑定会指向没学/已失效的技能（点击静默失败）。
+        DelayedRediscover()
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- 战斗结束后补上战斗中被推迟的布局与过滤器更新。
         -- 统一重跑 RefreshAll：有驱散则刷新布局，无驱散则隐藏全部方块。

@@ -5,6 +5,7 @@ A clickable square beside each party member's health bar: when a dispellable deb
 ## Features
 
 - Auto-discovers the dispels available to your current class and spec, and binds them to mouse buttons: 1 dispel → left click, 2 → left/right, 3 → left/right/middle. Re-detects automatically after spec or talent changes.
+- All five squares are pre-created with their managed aura containers bound to fixed unit tokens, and visibility is driven by a secure state driver. A party member joining or leaving is reflected immediately — even in combat, where protected frames cannot be moved or shown by addon Lua. A member that joined mid-combat (and could not be anchored yet) appears in a reserved spot next to the party frames, then snaps to their own frame once combat ends.
 - When a party member is clean, the square shows only a faint white mark in the center; when a dispellable debuff appears, the whole square turns the type color with a lit white border — works in combat and instances (built on the official 12.1 managed aura system, unaffected by the secret-aura restrictions).
 - Debuff type color legend:
 
@@ -27,7 +28,7 @@ A clickable square beside each party member's health bar: when a dispellable deb
 
 ## Compatibility
 
-- Specially adapted for Ellesmere Raid Frames (ERF) and the default Blizzard party frames; other standard unit frames (e.g. ElvUI) are usually auto-detected too.
+- Squares anchor to each member's health bar (ERF / Blizzard party frames; other unit-frame addons usually auto-detected). Squares that cannot be anchored yet (e.g. a member who joined mid-combat) stay in a reserved column beside the party frames until the next out-of-combat refresh.
 - Works in parties (including solo) only; automatically hidden in raids.
 - Also supports **World of Warcraft: Forever** (interface 16001): its Vanilla ruleset uses its own dispel spell list (e.g. Cleanse, Cure Poison, Dispel Magic, Felhunter's Devour Magic).
 
@@ -55,6 +56,7 @@ This addon was made for the author's personal convenience; features follow perso
 ## 功能
 
 - 自动识别你当前职业、专精可用的驱散技能并绑定到鼠标键：1 个技能绑左键，2 个绑左/右键，3 个绑左/右/中键；切换专精或天赋后自动重新识别。
+- 5 个方块与各自的托管光环容器在登录时就预建好，并永久绑定固定的 unit token；显隐交给安全状态驱动。队友加入/退出即刻生效——战斗中同样有效（战斗中 Lua 无法移动或显示受保护按钮）。战斗中加入、还来不及挂靠的队友，方块会先出现在队伍框旁的预留列，脱战后自动吸附到他的血条旁。
 - 队友身上没有可驱散减益时，方块只显示中央一圈淡白色印记；出现可驱散减益时整块变色并亮起白色外描边，战斗中、副本内同样有效（基于 12.1 官方托管光环方案，不受保密光环限制）。
 - 减益类型颜色图例：
 
@@ -77,7 +79,7 @@ This addon was made for the author's personal convenience; features follow perso
 
 ## 兼容性
 
-- 对 Ellesmere Raid Frames (ERF) 与暴雪原生小队框架做了专门适配；其他标准单位框架（如 ElvUI）通常也能自动识别。
+- 方块贴在各队员血条旁（ERF / 暴雪队伍框，其他单位框架插件通常也能自动识别）。暂时挂不上框的（例如战斗中加入的新队友）会停在队伍框旁的预留列，下一次脱战刷新自动吸附。
 - 仅在小队（含单人）中工作，团队中自动隐藏。
 - 同时支持**魔兽世界：永恒（WoW Forever）**（界面版本 16001）：其香草规则使用独立的驱散技能表（清洁术、驱毒术、驱散魔法、地狱犬的吞噬魔法等）。
 
